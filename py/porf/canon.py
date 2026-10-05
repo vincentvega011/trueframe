@@ -6,7 +6,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from typing import Any
+
+QUANT_DECIMALS = 4
+
+
+def quantize(x: float) -> float:
+    """The one float rule for anything that enters a hashed structure.
+
+    Rounds to 4 decimals, normalizes -0.0 to 0.0, rejects NaN and Infinity.
+    """
+    x = float(x)
+    if not math.isfinite(x):
+        raise ValueError("NaN/Infinity cannot enter a scene graph")
+    r = round(x, QUANT_DECIMALS)
+    return 0.0 if r == 0.0 else r
 
 
 def canonical_bytes(obj: Any) -> bytes:

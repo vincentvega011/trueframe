@@ -50,7 +50,7 @@ Tests warp the clock (LiteSVM `set_sysvar::<Clock>`); no `sleep`.
 
 **Per-frame RNG:** `random.Random(int.from_bytes(sha256(seed_u64_le || frame_index_u32_le)[:8], "little"))`.
 
-**Depth encoding [DECIDED]:** 16-bit PNG, fixed `near`/`far` stored in the scene graph's camera block (never adaptive per frame). `depth_u16 = round(65535 * clamp((z - near) / (far - near), 0, 1))`, `z` = distance along the camera axis in metres. `near`/`far` values **[TBD]** — fixed in `scene/camera.py` and copied here.
+**Depth encoding [DECIDED]:** 16-bit PNG, fixed `near`/`far` stored in the scene graph's camera block (never adaptive per frame). `depth_u16 = round(65535 * clamp((z - near) / (far - near), 0, 1))`, `z` = distance along the camera axis in metres. `near = 0.1`, `far = 40.0` (metres, constants in `scene/camera.py`, written into every scene graph's camera block). Depth is the distance along the camera's viewing axis, not the Euclidean distance to the camera.
 
 ## 4. Merkle commitment
 
@@ -206,3 +206,54 @@ Required tests: one per transition, plus wrong signer, wrong status, wrong mint,
 7. Program tests are Rust LiteSVM.
 8. Chain client is a TypeScript CLI on `@anchor-lang/core` called from Python (ENV.md).
 9. Node cheat modes corrupt ≥ 50% of frames by default and take `--fraction`, so the demo is reliable; the single-bad-frame row of the detection table is reproduced by passing a small `--fraction`.
+
+## 13. Scene generator and camera conventions (`warehouse_v1`)
+
+Code: `py/porf/scene/{generator,camera,projection}.py`. The Blender job must reproduce these conventions exactly; the verifier's projection check depends on them.
+
+### 13.1 Coordinate conventions
+
+- **World:** right-handed, **+Z up**, metres. The floor spans x ∈ [−10, 10], y ∈ [−8, 8], top surface at z = 0. Objects stay at least 0.5 m inside the walls.
+- **Object pose:** `location` is the centre of the object's box; `dimensions = [sx, sy, sz]` are full extents along the object's local x, y, z; `yaw_deg` is a rotation about +Z, counter-clockwise seen from above (local +x → world +y at 90°). No pitch or roll. Blender: unit cube scaled by `dimensions / 2` (Blender's default cube is 2 m wide), `rotation_euler = (0, 0, radians(yaw_deg))`.
+- **Camera pose:** `location`, `yaw_deg`, `pitch_deg`, no roll. Yaw 0 looks along **+Y**; positive yaw turns counter-clockwise seen from above (yaw 90 looks along −X, 180 along −Y, 270 along +X). Positive pitch looks **down**. World-space unit vectors: forward = (−cos p · sin y, cos p · cos y, −sin p); right = (cos y, sin y, 0); up = (−sin p · sin y, sin p · cos y, cos p).
+- **Blender camera:** cameras look down their local **−Z** with **+Y up** and +X right. This pose equals `rotation_euler = (radians(90 − pitch_deg), 0, radians(yaw_deg))`, mode `XYZ` (R = Rz·Ry·Rx), at `location`.
+- **FOV:** `fov_deg` is the **horizontal** field of view (`fov_axis = "horizontal"`). In Blender set `sensor_fit = 'HORIZONTAL'`, `lens_unit = 'FOV'`, `angle = radians(fov_deg)`, `shift_x = shift_y = 0`, `clip_start = near`, `clip_end = far`, render resolution = `resolution` at 100%, pixel aspect 1:1. Never rely on `sensor_fit = 'AUTO'`. Pixels are square: focal length in pixels `f = (W/2) / tan(fov/2)`; vertical FOV is derived (`2·atan(tan(fov/2)·H/W)`).
+- **Image/pixel space:** origin at the **top-left corner** of the top-left pixel, **u to the right, v downward**; pixel (i, j) covers [i, i+1) × [j, j+1) and its centre is (i + 0.5, j + 0.5). The principal point is the image centre (W/2, H/2). Saved PNGs are top-down; whatever Blender's bottom-up buffers do must be corrected so PNGs match this.
+- **Projection:** with camera-space coordinates (xc, yc, zc) (x right, y up, looking down −z) and depth d = −zc: `u = W/2 + f·xc/d`, `v = H/2 − f·yc/d`.
+
+### 13.2 Full-object 2D box
+
+`projection.project_box` takes the 8 corners of the object's yawed box, clips its 12 edges to the near plane (depth ≥ `near`), projects them, takes the bounding rectangle and clips it to [0, W] × [0, H]. Result: `status` ∈ {`ok`, `behind_camera` (entire box nearer than the near plane), `outside_image` (in front but fully off-screen)}, a `box` (None unless `ok`), and `truncated` (cut by the near plane or the image border). This is the *full* extent ignoring occlusion, so a node's visible-mask box must lie inside it. **Any geometry the renderer builds for an object (rack shelves, forklift parts) must stay inside that object's box**, otherwise this guarantee breaks. Racks, pallets, boxes and the forklift are each one box in the scene graph.
+
+### 13.3 Scene graph
+
+```
+{ "scene_type": "warehouse_v1", "seed": u64, "frame_index": u32, "occlusion_level": 0..3,
+  "camera":   { "location": [x,y,z], "yaw_deg", "pitch_deg", "fov_deg", "fov_axis": "horizontal",
+                "resolution": [W,H], "near": 0.1, "far": 40.0 },
+  "lighting": { "sun": { "yaw_deg", "elevation_deg", "energy" }, "ambient": 0.3 },
+  "floor":    { "size": [20.0, 16.0] },
+  "objects":  [ { "id", "class", "dimensions": [..], "location": [..], "yaw_deg",
+                  "occlusion": { "placed_behind": id | null, "kind": "none" | "rack" | "pallet" } }, ... ] }
+```
+
+- **Ids** are integers assigned in generation order starting at 1, and `objects` is built in that order (racks, then pallets, then boxes on pallets, then loose boxes, then the optional forklift). Nothing is iterated from a `set` or `dict`. Segmentation instance id = object id (0 = background); class ids: `rack` 1, `pallet` 2, `box` 3, `forklift` 4.
+- **`occlusion.placed_behind`** records the generator's *placement intent*: this object was positioned directly behind the object with that id, as seen along the camera's aiming direction (boxes inherit it from their pallet). It does not guarantee the object is invisible; actual visibility comes from the segmentation mask.
+- The scene hash covers the whole graph including `seed`, `frame_index` and `occlusion_level`.
+
+### 13.4 Generation rules and occlusion levels
+
+Per frame, one RNG (`frame_rng(seed, frame_index)`, §3) drives everything, so frames are independent scenes. Order: racks → aim direction and focus rack → camera → pallets → boxes → forklift → lighting. Racks (3–5, 2.5/3.0/3.5 m long, 1 m deep, 3/3.5/4 m tall, yaw 0 or 90) are placed by rejection sampling with 1.8 m aisles. The camera aims along one of the four axis directions at a randomly chosen **focus rack**. Six pallets (1.2 × 0.8 × 0.15 m, yaw 0 or 90) are placed. "Open" pallets go in the corridor between camera and focus rack; "hidden" pallets go directly behind the focus rack or behind another pallet. 0–3 boxes sit on each pallet; 2–4 loose boxes and a forklift (50%) go on the floor.
+
+| `occlusion_level` | hidden pallets (of 6) | camera height z (m) | pitch (° down) | distance to focus rack (m) | yaw jitter (±°) |
+|---|---|---|---|---|---|
+| 0 | 0 | 3.5 – 5.0 | 25 – 35 | 7.0 – 10.0 | 12 |
+| 1 | 1 | 2.5 – 3.5 | 18 – 28 | 6.0 – 8.5 | 10 |
+| 2 | 3 | 1.6 – 2.5 | 8 – 18 | 4.5 – 7.0 | 7 |
+| 3 | 5 | 0.9 – 1.6 | 0 – 8 | 3.5 – 5.5 | 5 |
+
+Level 3 therefore puts a low, nearly horizontal camera close to a tall rack with most pallets hidden behind it or behind other pallets; level 0 looks down from above at pallets standing in the open. A hidden pallet whose placement attempts all fail (30 tries) is skipped, so the realised count can be below the target (for seed 42, frames 0–19, level 3 gives 5 in 17 of 20 frames, never below 2). Other draws: horizontal FOV 62–78°, sun yaw 0–360°, elevation 35–75°, energy 2–4.
+
+### 13.5 Determinism rules for the generator
+
+No trigonometry and no `numpy` in the generator. Yaws that other placements depend on are exactly 0 or 90, so footprints and stacking offsets are exact swaps/negations; everything else comes from the RNG and `+ − × ÷ √`, which are bit-identical under IEEE-754. Trig appears only in `camera.py`/`projection.py`, whose outputs are never hashed. Every float passes through `canon.quantize` (round to 4 decimals, −0.0 → 0.0, reject NaN/Infinity). Regression vector: `sha256(canonical(generate_scene(42, 0, 0)))` = `8b6bfed0102d43c9f6d77085ad7077945e4093b83e737568504716336dcd27c7` (`py/tests/test_scene.py`).
