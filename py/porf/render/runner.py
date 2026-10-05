@@ -99,6 +99,7 @@ def render_frames(
     samples: int = DEFAULT_SAMPLES,
     gpu: bool = False,
     blender: str | None = None,
+    test_inflate: dict | None = None,
 ) -> dict:
     """Render `frames` of (seed, occlusion_level) with a single Blender process."""
     blender = blender or find_blender()
@@ -123,6 +124,8 @@ def render_frames(
             }
         )
     spec = {"width": width, "height": height, "samples": samples, "gpu": gpu, "frames": spec_frames}
+    if test_inflate:  # TEST ONLY: {"object_id": int, "part": int, "extra": metres}; makes Blender fail loudly
+        spec["test_inflate"] = test_inflate
     spec_path = out_dir / "render_spec.json"
     spec_path.write_text(json.dumps(spec, indent=1))
 

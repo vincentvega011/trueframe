@@ -243,7 +243,7 @@ Code: `py/porf/scene/{generator,camera,projection}.py`. The Blender job must rep
 
 ### 13.4 Generation rules and occlusion levels
 
-Per frame, one RNG (`frame_rng(seed, frame_index)`, §3) drives everything, so frames are independent scenes. Order: racks → aim direction and focus rack → camera → pallets → boxes → forklift → lighting. Racks (3–5, 2.5/3.0/3.5 m long, 1 m deep, 3/3.5/4 m tall, yaw 0 or 90) are placed by rejection sampling with 1.8 m aisles. The camera aims along one of the four axis directions at a randomly chosen **focus rack**. Six pallets (1.2 × 0.8 × 0.15 m, yaw 0 or 90) are placed. "Open" pallets go in the corridor between camera and focus rack; "hidden" pallets go directly behind the focus rack or behind another pallet. 0–3 boxes sit on each pallet; 2–4 loose boxes and a forklift (50%) go on the floor.
+Per frame, one RNG (`frame_rng(seed, frame_index)`, §3) drives everything, so frames are independent scenes. Order: racks → aim direction, focus rack and camera pose (with the guard in 13.4.1) → pallets → boxes → forklift → lighting. Racks (3–5, 2.5/3.0/3.5 m long, 1 m deep, 3/3.5/4 m tall, yaw 0 or 90) are placed by rejection sampling with 1.8 m aisles. The camera aims along one of the four axis directions at a randomly chosen **focus rack**. Six pallets (1.2 × 0.8 × 0.15 m, yaw 0 or 90) are placed. "Open" pallets go in the corridor between camera and focus rack; "hidden" pallets go directly behind the focus rack or behind another pallet. 0–3 boxes sit on each pallet; 4–6 loose boxes and a forklift (50%) go on the floor, preferably in the camera's view (see 13.4.1).
 
 | `occlusion_level` | hidden pallets (of 6) | camera height z (m) | pitch (° down) | distance to focus rack (m) | yaw jitter (±°) |
 |---|---|---|---|---|---|
@@ -252,11 +252,29 @@ Per frame, one RNG (`frame_rng(seed, frame_index)`, §3) drives everything, so f
 | 2 | 3 | 1.6 – 2.5 | 8 – 18 | 4.5 – 7.0 | 7 |
 | 3 | 5 | 0.9 – 1.6 | 0 – 8 | 3.5 – 5.5 | 5 |
 
-Level 3 therefore puts a low, nearly horizontal camera close to a tall rack with most pallets hidden behind it or behind other pallets; level 0 looks down from above at pallets standing in the open. A hidden pallet whose placement attempts all fail (30 tries) is skipped, so the realised count can be below the target (for seed 42, frames 0–19, level 3 gives 5 in 17 of 20 frames, never below 2). Other draws: horizontal FOV 62–78°, sun yaw 0–360°, elevation 35–75°, energy 2–4.
+Level 3 therefore puts a low, nearly horizontal camera close to a tall rack with most pallets hidden behind it or behind other pallets; level 0 looks down from above at pallets standing in the open. A hidden pallet whose placement attempts all fail (30 tries) is skipped, so the realised count can be below the target (seed 42, frames 0–59, level 3: 5 hidden pallets in 56 frames, 4 in the other 4; levels 1 and 2 always place all of theirs). Other draws: horizontal FOV 62–78°, sun yaw 0–360°, elevation 35–75°, energy 2–4.
+
+#### 13.4.1 Camera pose guard and view-cone placement
+
+Without a guard, level 3 produced near-degenerate frames: a camera pushed against a wall 2–3 m from a rack that fills the whole view, or aimed at a rack standing against the far wall so nothing could be placed behind it. The camera pose (aim direction, focus rack, distance, lateral offset, height) is therefore validated **after the wall clamp**, on the final position:
+
+| Rule | Value |
+|---|---|
+| Plan-view distance from the camera to the nearest rack surface (any rack) | ≥ `MIN_RACK_DIST` = 3.5 m |
+| Camera height | ≥ `MIN_CAM_HEIGHT` = (3.5, 2.5, 1.6, **1.0**) m for levels 0–3 (equal to the draw range's floor except at level 3, where the range starts at 0.9) |
+| Free floor behind the focus rack along the aim, when the level hides pallets | ≥ `MIN_ROOM_BEHIND` = 3.0 m |
+
+If a pose fails, the pose is **redrawn from the same per-frame RNG stream** (aim direction, focus rack, distance, lateral offset, height — five draws per attempt), at most `MAX_POSE_TRIES` = 12 times. If all fail, a **deterministic fallback that consumes no randomness** is used: the first (rack in generation order, direction in table order) combination whose pose at the *far end* of the level's distance range and height range, with zero lateral offset, passes the guard; if even that fails (not observed), the last drawn pose is kept. Pitch, yaw jitter and FOV are drawn once, after the pose is accepted. `test_deterministic_fallback_pose` forces this path by setting `MAX_POSE_TRIES = 0`.
+
+Because the guard is evaluated on the same values that enter the graph, it uses only comparisons, `+ − × ÷` and `sqrt` (§13.5).
+
+**View-cone placement.** Open pallets go in the *corridor* between camera and focus rack (§13.4). Loose boxes and the forklift use three stages: the corridor, then the whole *view cone* (distance 1.8–9 m ahead of the camera, lateral offset within ±0.55 × distance, excluding the focus rack's perspective shadow), then anywhere on the floor. This keeps "visible context" in frame without any extra randomness source.
+
+**Measured effect** (seed 42, real renders, 10 frames, 64 samples): level 3 shows **min 8, mean 12.6 visible objects per frame** (per frame 12, 19, 11, 9, 18, 14, 12, 8, 15, 8), and **48%** of its objects are fully hidden; level 0 shows min 15, mean 19.5, and **17%** hidden. Over 60 frames at level 3 (low-quality renders), 3 frames showed only 4 visible objects, each a tall rack filling the view from 3.5–4.3 m; an extra rack-width guard was tried and rejected because it did not change the two worst frames. The spread within level 3 is real: frame 1 sees its focus rack side-on, so the pallets behind it peek out at the sides and are only partially occluded (visibility 0.2–0.6).
 
 ### 13.5 Determinism rules for the generator
 
-No trigonometry and no `numpy` in the generator. Yaws that other placements depend on are exactly 0 or 90, so footprints and stacking offsets are exact swaps/negations; everything else comes from the RNG and `+ − × ÷ √`, which are bit-identical under IEEE-754. Trig appears only in `camera.py`/`projection.py`, whose outputs are never hashed. Every float passes through `canon.quantize` (round to 4 decimals, −0.0 → 0.0, reject NaN/Infinity). Regression vector: `sha256(canonical(generate_scene(42, 0, 0)))` = `8b6bfed0102d43c9f6d77085ad7077945e4093b83e737568504716336dcd27c7` (`py/tests/test_scene.py`).
+No trigonometry and no `numpy` in the generator. Yaws that other placements depend on are exactly 0 or 90, so footprints and stacking offsets are exact swaps/negations; everything else comes from the RNG and `+ − × ÷ √`, which are bit-identical under IEEE-754. Trig appears only in `camera.py`/`projection.py`, whose outputs are never hashed. Every float passes through `canon.quantize` (round to 4 decimals, −0.0 → 0.0, reject NaN/Infinity). Regression vectors (`py/tests/test_scene.py`): `sha256(canonical(generate_scene(42, 0, 0)))` = `77f7f25c1e75ee2ea0a5f66ebb2c9936162a841dd3949ca9db56a61a5396ac4c` and `generate_scene(42, 0, 3)` = `1704f1b7be84042dbb9c53669afeda33938abcd47b81e66e56ea5b738ed153f5`. The level-0 value was **deliberately changed** when §13.4.1 was added (previous value `8b6bfed0…27c7`): loose boxes went from 2–4 to 4–6 and moved into the view cone. Any later generator change must update these vectors on purpose.
 
 ## 14. Renderer (`py/porf/render/`)
 
@@ -266,7 +284,7 @@ No trigonometry and no `numpy` in the generator. Yaws that other placements depe
 - `blender_job.py` (inside Blender, `bpy` + stdlib only) reads `scene.json` and the spec, builds geometry, renders. It makes **no random choices**.
 - **Camera conventions are not re-derived in Blender.** The runner computes the exact Blender camera parameters with `camera.blender_camera_spec` (location, `rotation_euler = (radians(90 − pitch), 0, radians(yaw))`, `sensor_fit = HORIZONTAL`, `angle = radians(fov)`, clip planes, resolution) and writes them into the spec; the job applies them verbatim. Reason: `camera.py` uses package-relative imports and cannot be imported by path from inside Blender, and a second copy of the angle maths could drift. `scene.json` stays the only hashed scene input; `render_spec.json` is derived data and is not hashed. A unit test checks the spec against `Camera.basis()`.
 - Object geometry (`blender_job.parts_for`): rack = 4 corner posts + 4 shelf boards + a solid back panel on local +y; pallet = deck + 3 skids; box = one cube; forklift = chassis, counterweight, mast, 4 guard posts, roof, 2 forks (forks toward local +y). All unit-cube parts, parented to an empty at the object's `location` / `yaw_deg`. Every part's `pass_index` is the object id.
-- **Containment assertion:** after building each frame, every part's world-space bound-box corners are transformed into its object's local frame and must satisfy `|axis| ≤ dimension/2 + 1e-4`; otherwise the job raises and exits non-zero (the runner reports the tail of Blender's output).
+- **Containment assertion:** after building each frame, every part's world-space bound-box corners are transformed into its object's local frame and must satisfy `|axis| ≤ dimension/2 + 1e-4`; otherwise the job raises and exits non-zero (the runner reports the tail of Blender's output). **Test-only hook:** the spec key `test_inflate` (`{object_id, part, extra}`, set via `render_frames(..., test_inflate=...)`) grows one part past its box so a slow test can prove that Blender exits with code 1 and a "leaves its box" message before rendering anything. It is never set in production runs.
 
 ### 14.2 Per-frame outputs (`<out>/frame_<i>/`)
 

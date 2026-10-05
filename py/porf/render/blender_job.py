@@ -143,6 +143,7 @@ class Stage:
         if spec.get("gpu"):
             self._enable_gpu()
         self.samples = spec["samples"]
+        self.test_inflate = spec.get("test_inflate")  # TEST ONLY: see build(); never set in production runs
         sc.view_layers[0].use_pass_z = True
         sc.view_layers[0].use_pass_object_index = True
 
@@ -225,6 +226,13 @@ class Stage:
         self.sun.rotation_euler = (math.radians(90.0 - sun["elevation_deg"]), 0.0, math.radians(sun["yaw_deg"]))
         self.sun.data.energy = sun["energy"]
         self.world_bg.inputs["Strength"].default_value = graph["lighting"]["ambient"]
+
+        if self.test_inflate:  # TEST ONLY: grow one part past its object's box to prove the assertion fires
+            inf = self.test_inflate
+            for obj, _root, parts in built:
+                if obj["id"] == inf["object_id"]:
+                    part = parts[inf.get("part", 0)]
+                    part.scale = tuple(v + inf["extra"] for v in part.scale)
 
         bpy.context.view_layer.update()
         for obj, root, parts in built:

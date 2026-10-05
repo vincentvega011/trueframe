@@ -189,3 +189,25 @@ def test_level3_hides_more_objects_than_level0(tmp_path_factory):
         return sum(1 for r in res["frames"].values() for o in r["annotations"]["objects"] if o["bbox"] is None)
 
     assert hidden(3) > hidden(0) + 10
+
+
+@pytest.mark.slow
+@needs_blender
+def test_level3_frames_keep_enough_visible_objects(tmp_path):
+    """The pose guard and view-cone placement exist so level 3 is occluded but never empty."""
+    res = render_frames(42, list(range(10)), tmp_path, occlusion_level=3, samples=1)
+    visible = [sum(1 for o in r["annotations"]["objects"] if o["bbox"] is not None) for r in res["frames"].values()]
+    assert min(visible) >= 6, visible
+
+
+@pytest.mark.slow
+@needs_blender
+def test_containment_assertion_fires_and_blender_exits_nonzero(tmp_path):
+    """Test-only hook inflates one part of object 1 past its box: Blender must fail loudly."""
+    with pytest.raises(RuntimeError) as exc:
+        render_frames(42, [0], tmp_path, samples=1, test_inflate={"object_id": 1, "part": 0, "extra": 0.3})
+    msg = str(exc.value)
+    assert "Blender failed (exit 1)" in msg and "leaves its box" in msg and "object 1" in msg
+    assert not (frame_dir(tmp_path, 0) / "rgb.png").exists()  # failed before rendering anything
+    # control: the identical job without the hook passes the same assertion
+    render_frames(42, [0], tmp_path / "ok", samples=1)

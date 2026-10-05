@@ -11,8 +11,13 @@ from porf.scene.camera import Camera, camera_dict
 from porf.scene.generator import CLASS_IDS, FLOOR_SIZE, generate_scene
 from porf.scene.projection import BEHIND_CAMERA, OK, OUTSIDE_IMAGE, project_box
 
-# Regression vector: if the generator's output changes in any way, this breaks.
-SEED42_FRAME0_L0_HASH = "8b6bfed0102d43c9f6d77085ad7077945e4093b83e737568504716336dcd27c7"
+# Regression vectors: if the generator's output changes in any way, these break.
+# DELIBERATELY UPDATED when the camera-pose guard and view-cone placement of loose boxes / forklift were
+# added (previous level-0 value: 8b6bfed0102d43c9f6d77085ad7077945e4093b83e737568504716336dcd27c7).
+# The level-0 hash moved because loose boxes now number 4-6 (was 2-4) and are placed in the view cone,
+# not because level 0's camera changed. Any further change must update these on purpose.
+SEED42_FRAME0_L0_HASH = "77f7f25c1e75ee2ea0a5f66ebb2c9936162a841dd3949ca9db56a61a5396ac4c"
+SEED42_FRAME0_L3_HASH = "1704f1b7be84042dbb9c53669afeda33938abcd47b81e66e56ea5b738ed153f5"
 
 
 # ---------------- quantize ----------------
@@ -50,6 +55,7 @@ def test_byte_identical_across_processes_and_hash_seeds():
 
 def test_regression_hash_seed42_frame0():
     assert hash_json(generate_scene(42, 0)).hex() == SEED42_FRAME0_L0_HASH
+    assert hash_json(generate_scene(42, 0, 3)).hex() == SEED42_FRAME0_L3_HASH
 
 
 def test_same_inputs_same_output_in_process():
@@ -280,3 +286,67 @@ def test_projection_of_generated_scene_is_sane():
         p = project_box(cam, o)
         if p.box:
             assert 0.0 <= p.box[0] < p.box[2] <= 640.0 and 0.0 <= p.box[1] < p.box[3] <= 480.0
+
+
+# ---------------- camera pose guard ----------------
+
+def _plan_distance_to_racks(g):
+    cx, cy = g["camera"]["location"][0], g["camera"]["location"][1]
+    best = float("inf")
+    for o in g["objects"]:
+        if o["class"] != "rack":
+            continue
+        hx, hy = o["dimensions"][0] / 2, o["dimensions"][1] / 2
+        if o["yaw_deg"] == 90.0:
+            hx, hy = hy, hx
+        dx = max(abs(cx - o["location"][0]) - hx, 0.0)
+        dy = max(abs(cy - o["location"][1]) - hy, 0.0)
+        best = min(best, math.hypot(dx, dy))
+    return best
+
+
+@pytest.mark.parametrize("level", [0, 1, 2, 3])
+def test_camera_pose_guard_holds(level):
+    from porf.scene.generator import MIN_CAM_HEIGHT, MIN_RACK_DIST
+
+    for frame in range(40):
+        g = generate_scene(42, frame, level)
+        x, y, z = g["camera"]["location"]
+        assert _plan_distance_to_racks(g) >= MIN_RACK_DIST - 1e-3, (level, frame)
+        assert z >= MIN_CAM_HEIGHT[level], (level, frame)
+        assert abs(x) <= 9.5 and abs(y) <= 7.5
+
+
+def test_level3_places_nearly_all_hidden_pallets():
+    """The guard keeps >= MIN_ROOM_BEHIND of floor behind the focus rack, so the hidden pallets fit.
+    Chains of pallets can still run out of room occasionally: never fewer than 4 of 5, and 5 in >= 90% of frames."""
+    from porf.scene.generator import BEHIND_PALLETS
+
+    counts = []
+    for frame in range(60):
+        g = generate_scene(42, frame, 3)
+        counts.append(sum(1 for o in g["objects"] if o["class"] == "pallet" and o["occlusion"]["placed_behind"] is not None))
+    assert min(counts) >= BEHIND_PALLETS[3] - 1
+    assert counts.count(BEHIND_PALLETS[3]) >= 54
+    for level in (1, 2):  # lower levels always place all of theirs
+        for frame in range(30):
+            g = generate_scene(42, frame, level)
+            assert sum(1 for o in g["objects"] if o["class"] == "pallet" and o["occlusion"]["placed_behind"] is not None) == BEHIND_PALLETS[level]
+
+
+def test_deterministic_fallback_pose(monkeypatch):
+    """With zero redraws allowed the fallback pose is used: still deterministic and still guarded."""
+    import porf.scene.generator as gen
+
+    monkeypatch.setattr(gen, "MAX_POSE_TRIES", 0)
+    for level in (0, 3):
+        for frame in range(10):
+            a, b = generate_scene(42, frame, level), generate_scene(42, frame, level)
+            assert a == b
+            assert _plan_distance_to_racks(a) >= gen.MIN_RACK_DIST - 1e-3
+            assert a["camera"]["location"][2] >= gen.MIN_CAM_HEIGHT[level]
+    # the fallback pose is a different pose from the drawn one
+    fallback = [generate_scene(42, f, 3)["camera"]["location"] for f in range(10)]
+    monkeypatch.setattr(gen, "MAX_POSE_TRIES", 12)
+    drawn = [generate_scene(42, f, 3)["camera"]["location"] for f in range(10)]
+    assert drawn != fallback
