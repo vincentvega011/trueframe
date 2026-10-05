@@ -257,3 +257,45 @@ Level 3 therefore puts a low, nearly horizontal camera close to a tall rack with
 ### 13.5 Determinism rules for the generator
 
 No trigonometry and no `numpy` in the generator. Yaws that other placements depend on are exactly 0 or 90, so footprints and stacking offsets are exact swaps/negations; everything else comes from the RNG and `+ − × ÷ √`, which are bit-identical under IEEE-754. Trig appears only in `camera.py`/`projection.py`, whose outputs are never hashed. Every float passes through `canon.quantize` (round to 4 decimals, −0.0 → 0.0, reject NaN/Infinity). Regression vector: `sha256(canonical(generate_scene(42, 0, 0)))` = `8b6bfed0102d43c9f6d77085ad7077945e4093b83e737568504716336dcd27c7` (`py/tests/test_scene.py`).
+
+## 14. Renderer (`py/porf/render/`)
+
+### 14.1 Architecture
+
+- `runner.py` (system Python, 3.11 venv) generates the scene graphs, writes `render_spec.json`, launches **one Blender process per batch** (`blender -b --factory-startup -noaudio --python-exit-code 1 -P blender_job.py -- --spec render_spec.json`), then builds `annotations.json` from the rendered `seg.png`.
+- `blender_job.py` (inside Blender, `bpy` + stdlib only) reads `scene.json` and the spec, builds geometry, renders. It makes **no random choices**.
+- **Camera conventions are not re-derived in Blender.** The runner computes the exact Blender camera parameters with `camera.blender_camera_spec` (location, `rotation_euler = (radians(90 − pitch), 0, radians(yaw))`, `sensor_fit = HORIZONTAL`, `angle = radians(fov)`, clip planes, resolution) and writes them into the spec; the job applies them verbatim. Reason: `camera.py` uses package-relative imports and cannot be imported by path from inside Blender, and a second copy of the angle maths could drift. `scene.json` stays the only hashed scene input; `render_spec.json` is derived data and is not hashed. A unit test checks the spec against `Camera.basis()`.
+- Object geometry (`blender_job.parts_for`): rack = 4 corner posts + 4 shelf boards + a solid back panel on local +y; pallet = deck + 3 skids; box = one cube; forklift = chassis, counterweight, mast, 4 guard posts, roof, 2 forks (forks toward local +y). All unit-cube parts, parented to an empty at the object's `location` / `yaw_deg`. Every part's `pass_index` is the object id.
+- **Containment assertion:** after building each frame, every part's world-space bound-box corners are transformed into its object's local frame and must satisfy `|axis| ≤ dimension/2 + 1e-4`; otherwise the job raises and exits non-zero (the runner reports the tail of Blender's output).
+
+### 14.2 Per-frame outputs (`<out>/frame_<i>/`)
+
+| File | Content |
+|---|---|
+| `scene.json` | canonical JSON of the scene graph; `sha256(file) = scene_hash` |
+| `rgb.png` | 8-bit RGB, top-down, Standard view transform; `sha256(file) = image_hash` |
+| `depth.png` | 16-bit grayscale (not hashed, not checked), see below |
+| `seg.png` | 16-bit grayscale, pixel = object id, 0 = background; `sha256(file) = seg_hash` |
+| `annotations.json` | canonical JSON; `sha256(file) = annotation_hash` |
+
+**Depth encoding:** `v = floor((z − near) · 65535 / (far − near) + 0.5)` clamped to [0, 65535], with `z` the distance along the camera axis (Blender's Z pass), `near = 0.1`, `far = 40.0`. Decode: `z = near + v/65535 · (far − near)`; resolution ≈ 0.61 mm. Rays that hit nothing (sky) saturate at 65535 (= `far`).
+
+**Segmentation exactness:** `rgb` and the id/depth data come from two Cycles renders. The auxiliary render uses 1 sample and `filter_width = 0.01`, so each pixel is the single sample at its centre (Cycles importance-samples the pixel filter) and the object-index pass holds one exact id per pixel, never a blend. It is read from float EXR files written by the compositor. The job asserts that **every pixel value is an exact integer that is 0 or a real object id** before writing, and the runner re-asserts it from the PNG.
+
+### 14.3 `annotations.json`
+
+Per object, in id order: `instance_id`, `class`, `class_id` (rack 1, pallet 2, box 3, forklift 4), `bbox` = `[x0, y0, x1, y1]` from the mask's pixel extents (origin top-left, `x1`/`y1` exclusive, same pixel space as §13.1) or `null` if fully hidden, `mask_pixels`, `visibility`. Fully hidden objects stay in the list with `bbox: null`, `visibility: 0.0`.
+
+**Visibility method (cheap, approximate):** `visibility = min(1, mask_pixels / silhouette_area)`, where `silhouette_area` is the pixel area, inside the image, of the convex hull of the object's projected, near-clipped 3D box (`projection.silhouette_area`). It is "how much of the most the object could cover is visible". It under-reports objects that are not solid (pallets seen edge-on, racks seen from the open side) and over-reports nothing: the hull contains every real part, so values are lower bounds on true visibility. Do not read it as an exact fraction. All floats go through `canon.quantize`.
+
+> **Flag for Day 4 calibration (do not tune yet):** visibility is a lower bound, and a loose one for the **non-solid classes, racks and forklifts** (their parts leave gaps inside the box silhouette), and for pallets seen edge-on. The visibility-scaled IoU threshold in check 4 (§7) will therefore need **per-class handling or per-class thresholds**, otherwise honest racks/forklifts will look "less visible than they are" and the IoU floor derived from visibility will be set too low for solid classes or too strict for non-solid ones. Calibrate on honest runs per class.
+>
+> Measured so far (seed 42, frames 0–4, occlusion 0 and 3, 131 visible objects): the mask box never exceeds the projected full-object box by more than **0.48 px** (mean 0.14–0.19 px), so a pixel tolerance of 2 px has plenty of headroom for the containment half of check 4. The IoU half is the one that needs calibration.
+
+### 14.4 Render settings
+
+Cycles, CPU by default (`--gpu` selects Metal on all non-CPU devices), 640×480, **64 samples** for `rgb.png` with the **OpenImageDenoise** denoiser (default pixel filter 1.5 px, adaptive sampling off, 4 bounces, `seed = 0`, not animated; denoising applies to the RGB render only), Standard view transform, sun + constant world light (`ambient`). The sun is rotated like a camera: `rotation_euler = (radians(90 − elevation), 0, radians(yaw))`, so light travels along that heading. Auxiliary render: 1 sample, 0 bounces, `filter_width = 0.01`, denoising off.
+
+Measured on an Apple-silicon laptop (CPU): about **2.8 s of render work per frame** (RGB 64 samples + OIDN ≈ 2.7 s, aux ≈ 0.05 s, encode ≈ 0.07 s), 3.5 s for a one-frame process including Blender startup (~0.8 s), ≈ 3.2 s/frame for a 5-frame batch.
+
+**Reproducibility:** with identical inputs, `depth.png` and `seg.png` were byte-identical across runs, but `rgb.png` was **not** (denoiser / thread scheduling). This does not affect the protocol, because the node commits to the hash of its own `rgb.png` and the verifier never re-renders (LIMITATIONS.md).

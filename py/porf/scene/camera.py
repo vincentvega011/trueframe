@@ -105,3 +105,23 @@ class Camera:
         depth = -zc
         f = self.focal_px
         return (self.width / 2.0 + f * xc / depth, self.height / 2.0 - f * yc / depth, depth)
+
+
+def blender_camera_spec(cam: Camera) -> dict:
+    """Exact Blender camera parameters, consumed verbatim by render/blender_job.py.
+
+    All angle conversions happen here so Blender never re-derives a convention.
+    Not hashed, so floats are left unquantized.
+    """
+    return {
+        "location": list(cam.location),
+        "rotation_mode": "XYZ",
+        "rotation_euler_rad": [math.radians(90.0 - cam.pitch_deg), 0.0, math.radians(cam.yaw_deg)],
+        "sensor_fit": "HORIZONTAL",
+        "lens_unit": "FOV",
+        "angle_rad": math.radians(cam.fov_deg),
+        "shift": [0.0, 0.0],
+        "clip_start": cam.near,
+        "clip_end": cam.far,
+        "resolution": [cam.width, cam.height],
+    }

@@ -20,3 +20,4 @@ include = ["porf*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: renders with real Blender; skipped if Blender is missing, deselect with -m \"not slow\""]

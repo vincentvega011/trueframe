@@ -15,7 +15,8 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - **Render quality is not verified.** Checks cover scene identity, annotation plausibility, image sanity and hash consistency, not that the render looks right.
 - **`depth.png` is neither hashed nor checked.**
 - Annotation plausibility uses tolerances calibrated on a small number of honest runs *(values TBD, PROTOCOL.md §7)*.
-- Image hashes are of the node's own output. Cross-machine render determinism is not claimed or required.
+- Image hashes are of the node's own output. Cross-machine render determinism is not claimed or required; `rgb.png` is not even byte-reproducible on one machine (denoising), while `seg.png`/`depth.png` are.
+- Per-object `visibility` is a lower bound (mask pixels over the box silhouette), loose for racks and forklifts.
 
 ## Infrastructure
 - **No data availability layer.** The node serves its own frames from its own machine. If it disappears, nothing is retrievable (and it is slashed if sampled).
