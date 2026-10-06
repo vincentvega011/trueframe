@@ -28,3 +28,7 @@ __pycache__/
 out/
 .DS_Store
 keys/
+
+# dev keypairs and local validator state
+keys/
+.localnet/
