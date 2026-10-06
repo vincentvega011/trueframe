@@ -15,7 +15,7 @@ use {
     },
     proof_of_render::{
         errors::PorError,
-        state::{Config, Request, RequestStatus},
+        state::{Config, Request, RequestStatus, Submission},
         CreateRequestParams,
     },
     solana_keypair::Keypair,
@@ -43,6 +43,9 @@ pub fn request_pda(requester: &Pubkey, request_id: u64) -> Pubkey {
         &proof_of_render::id(),
     )
     .0
+}
+pub fn submission_pda(request: &Pubkey) -> Pubkey {
+    Pubkey::find_program_address(&[proof_of_render::constants::SUBMISSION_SEED, request.as_ref()], &proof_of_render::id()).0
 }
 pub fn escrow_pda(request: &Pubkey) -> Pubkey {
     Pubkey::find_program_address(&[proof_of_render::constants::ESCROW_SEED, request.as_ref()], &proof_of_render::id()).0
@@ -117,6 +120,30 @@ impl Env {
     pub fn claim(&mut self, req: &Req) -> TxResult {
         let ix = ix_stake_and_claim(&self.node.pubkey(), &self.mint, req, &self.node_token);
         send(&mut self.svm, &[ix], &self.node, &[&self.node])
+    }
+
+    /// An open request (id) claimed by the default node 10 s after creation. Clock is left at BASE_TIME + 10.
+    pub fn claimed_request(&mut self, request_id: u64) -> Req {
+        let req = self.open_request(request_id);
+        self.warp_to(BASE_TIME + 10);
+        self.claim(&req).unwrap();
+        req
+    }
+
+    /// submit_commitment as the default node.
+    pub fn commit(&mut self, req: &Req, root: [u8; 32], frame_count: u32) -> TxResult {
+        let ix = ix_submit_commitment(&self.node.pubkey(), req, root, frame_count);
+        send(&mut self.svm, &[ix], &self.node, &[&self.node])
+    }
+
+    pub fn submission(&self, req: &Req) -> Submission {
+        read_anchor::<Submission>(&self.svm, &submission_pda(&req.request))
+    }
+
+    pub fn warp_to_slot(&mut self, slot: u64) {
+        let mut clock = self.svm.get_sysvar::<Clock>();
+        clock.slot = slot;
+        self.svm.set_sysvar(&clock);
     }
 
     /// A funded second actor holding `tokens` mock USDC, as (keypair, token account).
@@ -264,6 +291,20 @@ pub fn ix_stake_and_claim(node: &Pubkey, mint: &Pubkey, req: &Req, node_token: &
             stake_vault: req.stake_vault,
             node_token: *node_token,
             token_program: spl_token::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn ix_submit_commitment(node: &Pubkey, req: &Req, merkle_root: [u8; 32], frame_count: u32) -> Instruction {
+    Instruction::new_with_bytes(
+        proof_of_render::id(),
+        &proof_of_render::instruction::SubmitCommitment { merkle_root, frame_count }.data(),
+        proof_of_render::accounts::SubmitCommitment {
+            node: *node,
+            request: req.request,
+            submission: submission_pda(&req.request),
+            system_program: system_program::ID,
         }
         .to_account_metas(None),
     )

@@ -16,7 +16,6 @@ fn unimplemented_instructions_return_not_implemented() {
     let w = env.admin.pubkey();
     let r = req.request;
     let ixs = vec![
-        ix(proof_of_render::instruction::SubmitCommitment { merkle_root: [0; 32], frame_count: 10 }, proof_of_render::accounts::SubmitCommitment { node: w, request: r }),
         ix(proof_of_render::instruction::OpenChallenge {}, proof_of_render::accounts::OpenChallenge { verifier: w, request: r }),
         ix(proof_of_render::instruction::SubmitVerdict { verdict: Verdict::Pass }, proof_of_render::accounts::SubmitVerdict { verifier: w, request: r }),
         ix(proof_of_render::instruction::FinalizePayout {}, proof_of_render::accounts::FinalizePayout { caller: w, request: r }),

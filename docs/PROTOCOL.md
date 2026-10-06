@@ -318,7 +318,7 @@ Measured on an Apple-silicon laptop (CPU): about **2.8 s of render work per fram
 
 **Reproducibility:** with identical inputs, `depth.png` and `seg.png` were byte-identical across runs, but `rgb.png` was **not** (denoiser / thread scheduling). This does not affect the protocol, because the node commits to the hash of its own `rgb.png` and the verifier never re-renders (LIMITATIONS.md).
 
-## 15. On-chain program details (Day 2: `init_config`, `create_request`, `stake_and_claim`)
+## 15. On-chain program details (`init_config`, `create_request`, `stake_and_claim`, `submit_commitment`)
 
 Code: `programs/proof-of-render/src/`. Anchor 1.1.2, classic SPL Token program only (Token-2022 / `token_interface` is deferred to the Reflect check, if that integration is ever attempted).
 
@@ -358,10 +358,22 @@ The overflow check on the summed durations is made up front so that a later `cla
 
 ### 15.4 Errors (`errors.rs`, codes start at 6000)
 
-`InvalidStakeBps, ZeroFrames, TooManyFrames, ZeroPrice, InvalidDuration, InvalidOcclusionLevel, InvalidSceneType, InvalidResolution, ResolutionTooLarge, ZeroStake, MathOverflow, WrongMint, InvalidStatus, UnauthorizedVerifier, UnauthorizedNode, ClaimDeadlinePassed, CommitDeadlinePassed, DeadlineNotReached, ChallengeWindowOpen, ChallengeWindowClosed, FrameCountMismatch, SlotHashesUnavailable, SlotHashNotNewer, VerdictAlreadySet, VerdictNotFail, VerdictIsFail, NotImplemented`. Token-account mismatches surface as Anchor's own `ConstraintTokenMint` / `ConstraintTokenOwner` / `ConstraintSeeds`; a `mint` account that is not `config.mint` is `WrongMint`.
+`InvalidStakeBps, ZeroFrames, TooManyFrames, ZeroPrice, InvalidDuration, InvalidOcclusionLevel, InvalidSceneType, InvalidResolution, ResolutionTooLarge, ZeroStake, MathOverflow, WrongMint, InvalidStatus, UnauthorizedVerifier, UnauthorizedNode, ClaimDeadlinePassed, CommitDeadlinePassed, DeadlineNotReached, ChallengeWindowOpen, ChallengeWindowClosed, FrameCountMismatch, ZeroMerkleRoot, SlotHashesUnavailable, SlotHashNotNewer, VerdictAlreadySet, VerdictNotFail, VerdictIsFail, NotImplemented`. Token-account mismatches surface as Anchor's own `ConstraintTokenMint` / `ConstraintTokenOwner` / `ConstraintSeeds`; a `mint` account that is not `config.mint` is `WrongMint`.
 
 ### 15.5 Test status
 
 Tests are in `programs/proof-of-render/tests/` (`config.rs`, `create_request.rs`, `stake_and_claim.rs`, `stubs.rs`, shared harness in `common/`). Written for Day 2: every transition of the three implemented instructions with exact balances; init twice; wrong mint (mint account, requester token account, node token account); wrong token owner; double claim; claim after the deadline and exactly at it; claim on each of the seven non-`Open` statuses; each parameter bound, both sides; overflow; zero stake; insufficient balance; wrong stake vault; missing signer; and a check that the six unimplemented instructions return `NotImplemented`.
 
-**Pending (§11 list), by day:** Day 3: `submit_commitment` (wrong signer, wrong status, after deadline, frame-count mismatch, double commit). Day 4: `open_challenge` with SlotHashes, verdict after the window must fail, payout on `Pending` after the window must succeed, double payout, payout before the window ends, slash on `Pass`, payout on `Fail`, wrong mint on payouts/refunds. Day 5: `timeout_refund` (deadline not reached; claim without commit sends the stake to the requester; no claim).
+**Pending (§11 list), by day:** Day 4: `open_challenge` with SlotHashes, verdict after the window must fail, payout on `Pending` after the window must succeed, double payout, payout before the window ends, slash on `Pass`, payout on `Fail`, wrong mint on payouts/refunds. Day 5: `timeout_refund` (deadline not reached; claim without commit sends the stake to the requester; no claim).
+
+### 15.6 `submit_commitment(merkle_root: [u8; 32], frame_count: u32)`
+
+Accounts: `node` (signer, mut, pays rent), `request` (mut, PDA-checked), `submission` (`init`, PDA `["submission", request]`), `system_program`. No token accounts: no tokens move on commit.
+
+Checks, in this order: (1) `request.node == node` (`UnauthorizedNode`, evaluated as an account constraint, so it comes first; on an unclaimed request, whose `node` is the default key, no signer can pass); (2) status is `Claimed` (`InvalidStatus`); (3) `now <= commit_deadline` (`CommitDeadlinePassed`; `commit_deadline` is `claimed_at + commit_duration`, §2); (4) `frame_count == request.num_frames` (`FrameCountMismatch`); (5) `merkle_root` is not all zero bytes (`ZeroMerkleRoot`).
+
+Effects: `Submission` records `request`, `node`, `merkle_root`, `frame_count`, `commit_slot = Clock.slot`, `sample_seed = [0; 32]`, `sample_count = 0`, `verdict = Pending`, `bump`; `Request.status = Committed`. `commit_slot` is the slot `open_challenge` later compares against (§5).
+
+**Double commit** fails with the system program's "already in use" error, not `InvalidStatus`: `submission` is created with `init`, and Anchor creates it before the handler runs. The first commitment is therefore immutable, and a node cannot swap its root. The program cannot check that the root is a *correct* Merkle root; that is the verifier's job (§7).
+
+Tests (`tests/submit_commitment.rs`, 15): happy path with every `Submission` field exact (including `commit_slot` and rent paid by the node, not the requester); single-nonzero-byte root accepted; wrong node, requester/verifier/admin, unclaimed request and missing signature rejected; every non-`Claimed` status rejected; commit exactly at the deadline succeeds and one second later fails; deadline counted from the claim, not from creation; frame counts 0, 1, 9, 11, 1024 and `u32::MAX` rejected; zero root rejected; double commit (same and different root) fails and keeps the first root; another request's submission address and a fake system program rejected.

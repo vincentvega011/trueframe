@@ -55,6 +55,8 @@ pub enum PorError {
     // ---- commit / challenge / verdict (used from Day 3/4) ----
     #[msg("frame_count does not equal the request's num_frames")]
     FrameCountMismatch,
+    #[msg("merkle_root must not be all zeros")]
+    ZeroMerkleRoot,
     #[msg("SlotHashes sysvar is empty or malformed")]
     SlotHashesUnavailable,
     #[msg("most recent slot hash is not newer than the commit slot")]

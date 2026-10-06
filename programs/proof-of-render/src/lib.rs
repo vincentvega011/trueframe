@@ -27,11 +27,11 @@ pub mod proof_of_render {
         instructions::stake_and_claim::handle_stake_and_claim(ctx)
     }
 
-    // ---- not implemented yet (see instructions/stubs.rs) ----
-
     pub fn submit_commitment(ctx: Context<SubmitCommitment>, merkle_root: [u8; 32], frame_count: u32) -> Result<()> {
-        instructions::stubs::handle_submit_commitment(ctx, merkle_root, frame_count)
+        instructions::submit_commitment::handle_submit_commitment(ctx, merkle_root, frame_count)
     }
+
+    // ---- not implemented yet (see instructions/stubs.rs) ----
 
     pub fn open_challenge(ctx: Context<OpenChallenge>) -> Result<()> {
         instructions::stubs::handle_open_challenge(ctx)
