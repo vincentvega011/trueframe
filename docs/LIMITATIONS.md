@@ -8,6 +8,9 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - **No timeout after `Committed`.** If the verifier never opens a challenge, the request is stuck. Covered only by the trusted-verifier assumption.
 - **Network failure can slash an honest node.** A sampled frame the node cannot serve (3 tries × 10 s) is a failed frame. The report labels it "reveal unavailable", but the verdict is still `Fail`.
 - **Test USDC mint.** Mock mint, configurable via env. The real USDC mint is never used.
+- **`init_config` can be front-run.** `Config` is a global singleton PDA created by whoever calls `init_config` first, and that caller becomes admin and chooses the verifier. `scripts/setup.sh` calls it immediately after deploying, so the window is a few seconds on a program nobody has been told about. A production version would require the program's upgrade authority as signer.
+- **Classic SPL Token only.** The program supports the original SPL Token program; Token-2022 mints (transfer fees, interest-bearing extensions) are not supported and would break the exact-amount accounting.
+- Any signer may claim a request, including its own requester.
 - Devnet / localnet only. No mainnet.
 
 ## Detection

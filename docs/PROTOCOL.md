@@ -317,3 +317,51 @@ Cycles, CPU by default (`--gpu` selects Metal on all non-CPU devices), 640×480,
 Measured on an Apple-silicon laptop (CPU): about **2.8 s of render work per frame** (RGB 64 samples + OIDN ≈ 2.7 s, aux ≈ 0.05 s, encode ≈ 0.07 s), 3.5 s for a one-frame process including Blender startup (~0.8 s), ≈ 3.2 s/frame for a 5-frame batch.
 
 **Reproducibility:** with identical inputs, `depth.png` and `seg.png` were byte-identical across runs, but `rgb.png` was **not** (denoiser / thread scheduling). This does not affect the protocol, because the node commits to the hash of its own `rgb.png` and the verifier never re-renders (LIMITATIONS.md).
+
+## 15. On-chain program details (Day 2: `init_config`, `create_request`, `stake_and_claim`)
+
+Code: `programs/proof-of-render/src/`. Anchor 1.1.2, classic SPL Token program only (Token-2022 / `token_interface` is deferred to the Reflect check, if that integration is ever attempted).
+
+### 15.1 Accounts, PDAs and vaults
+
+| Account | Seeds | Notes |
+|---|---|---|
+| `Config` | `["config"]` | singleton: `admin`, `verifier`, `mint`, `stake_bps`, `bump` |
+| `Request` | `["request", requester, request_id_le]` | all fields in §10, plus `challenge_window_end` (0 until `open_challenge`) and `commit_deadline` (0 until claimed) |
+| escrow vault | `["escrow", request]` | SPL token account, mint = `config.mint`, **authority = the `Request` PDA** |
+| stake vault | `["stake", request]` | same; empty until `stake_and_claim` |
+| `Submission` | `["submission", request]` | created by `submit_commitment` (Day 3) |
+
+Both vaults are created by `create_request` (the requester pays their rent). Payouts and refunds sign as the `Request` PDA, using `["request", requester, request_id_le, bump]`. Every token transfer is `transfer_checked`, and every token account is constrained on `mint` and `authority`.
+
+**Closing order (for Day 4+):** at a terminal status the vaults must be **emptied and closed first (rent returned to the requester), and only then may the `Request` account be closed**, because the `Request` PDA is the vault authority and a vault cannot be closed without it. If closing proves complicated, skip closing entirely and record that in LIMITATIONS.md; funds are never at risk either way.
+
+### 15.2 Parameter rules (`create_request`)
+
+| Parameter | Rule | Error |
+|---|---|---|
+| `num_frames` | 1 ..= 1024 | `ZeroFrames`, `TooManyFrames` |
+| `price_per_frame` | > 0 | `ZeroPrice` |
+| `scene_type` | 0 | `InvalidSceneType` |
+| `occlusion_level` | 0 ..= 3 | `InvalidOcclusionLevel` |
+| `width`, `height` | 1 ..= 4096 each | `InvalidResolution`, `ResolutionTooLarge` |
+| `claim_duration`, `commit_duration`, `challenge_window_secs` | > 0, and `now + claim + commit + window` must not overflow `i64` | `InvalidDuration`, `MathOverflow` |
+| `escrow_amount` | `price_per_frame * num_frames`, `checked_mul` | `MathOverflow` |
+| `stake_amount` | `escrow_amount * stake_bps / 10_000`, checked, **rounded down**; must be > 0 | `MathOverflow`, `ZeroStake` |
+| `Config.stake_bps` | 1 ..= 10_000 (checked in `init_config`) | `InvalidStakeBps` |
+
+The overflow check on the summed durations is made up front so that a later `claimed_at + commit_duration` or `now + challenge_window_secs` can never fail and strand a request.
+
+### 15.3 Deadline boundary semantics
+
+`stake_and_claim` and `submit_commitment` are allowed while `now <= deadline`; `timeout_refund` only when `now > deadline`. The two can therefore never both succeed in the same second. `stake_and_claim` checks the status first (`InvalidStatus`), then the deadline (`ClaimDeadlinePassed`). Any signer may claim, including the requester.
+
+### 15.4 Errors (`errors.rs`, codes start at 6000)
+
+`InvalidStakeBps, ZeroFrames, TooManyFrames, ZeroPrice, InvalidDuration, InvalidOcclusionLevel, InvalidSceneType, InvalidResolution, ResolutionTooLarge, ZeroStake, MathOverflow, WrongMint, InvalidStatus, UnauthorizedVerifier, UnauthorizedNode, ClaimDeadlinePassed, CommitDeadlinePassed, DeadlineNotReached, ChallengeWindowOpen, ChallengeWindowClosed, FrameCountMismatch, SlotHashesUnavailable, SlotHashNotNewer, VerdictAlreadySet, VerdictNotFail, VerdictIsFail, NotImplemented`. Token-account mismatches surface as Anchor's own `ConstraintTokenMint` / `ConstraintTokenOwner` / `ConstraintSeeds`; a `mint` account that is not `config.mint` is `WrongMint`.
+
+### 15.5 Test status
+
+Tests are in `programs/proof-of-render/tests/` (`config.rs`, `create_request.rs`, `stake_and_claim.rs`, `stubs.rs`, shared harness in `common/`). Written for Day 2: every transition of the three implemented instructions with exact balances; init twice; wrong mint (mint account, requester token account, node token account); wrong token owner; double claim; claim after the deadline and exactly at it; claim on each of the seven non-`Open` statuses; each parameter bound, both sides; overflow; zero stake; insufficient balance; wrong stake vault; missing signer; and a check that the six unimplemented instructions return `NotImplemented`.
+
+**Pending (§11 list), by day:** Day 3: `submit_commitment` (wrong signer, wrong status, after deadline, frame-count mismatch, double commit). Day 4: `open_challenge` with SlotHashes, verdict after the window must fail, payout on `Pending` after the window must succeed, double payout, payout before the window ends, slash on `Pass`, payout on `Fail`, wrong mint on payouts/refunds. Day 5: `timeout_refund` (deadline not reached; claim without commit sends the stake to the requester; no claim).

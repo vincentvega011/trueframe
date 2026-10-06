@@ -1,5 +1,5 @@
 pub mod constants;
-pub mod error;
+pub mod errors;
 pub mod instructions;
 pub mod state;
 
@@ -15,11 +15,41 @@ declare_id!("7jhnpAu8H9rtDhEyXRmFCicjGLUepXoafE4SiE7EvDLw");
 pub mod proof_of_render {
     use super::*;
 
-    pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        crate::instructions::initialize::handle_initialize(ctx)
+    pub fn init_config(ctx: Context<InitConfig>, verifier: Pubkey, stake_bps: u16) -> Result<()> {
+        instructions::init_config::handle_init_config(ctx, verifier, stake_bps)
     }
 
-    pub fn increment(ctx: Context<Increment>) -> Result<()> {
-        crate::instructions::increment::handle_increment(ctx)
+    pub fn create_request(ctx: Context<CreateRequest>, params: CreateRequestParams) -> Result<()> {
+        instructions::create_request::handle_create_request(ctx, params)
+    }
+
+    pub fn stake_and_claim(ctx: Context<StakeAndClaim>) -> Result<()> {
+        instructions::stake_and_claim::handle_stake_and_claim(ctx)
+    }
+
+    // ---- not implemented yet (see instructions/stubs.rs) ----
+
+    pub fn submit_commitment(ctx: Context<SubmitCommitment>, merkle_root: [u8; 32], frame_count: u32) -> Result<()> {
+        instructions::stubs::handle_submit_commitment(ctx, merkle_root, frame_count)
+    }
+
+    pub fn open_challenge(ctx: Context<OpenChallenge>) -> Result<()> {
+        instructions::stubs::handle_open_challenge(ctx)
+    }
+
+    pub fn submit_verdict(ctx: Context<SubmitVerdict>, verdict: Verdict) -> Result<()> {
+        instructions::stubs::handle_submit_verdict(ctx, verdict)
+    }
+
+    pub fn finalize_payout(ctx: Context<FinalizePayout>) -> Result<()> {
+        instructions::stubs::handle_finalize_payout(ctx)
+    }
+
+    pub fn slash_and_refund(ctx: Context<SlashAndRefund>) -> Result<()> {
+        instructions::stubs::handle_slash_and_refund(ctx)
+    }
+
+    pub fn timeout_refund(ctx: Context<TimeoutRefund>) -> Result<()> {
+        instructions::stubs::handle_timeout_refund(ctx)
     }
 }
