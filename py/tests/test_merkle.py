@@ -5,6 +5,7 @@ here must break a test.
 Test fields for frame i: scene/ann/img/seg hash = sha256(b"scene%d" / b"ann%d" / b"img%d" / b"seg%d" % i).
 """
 import hashlib
+import json
 
 import pytest
 
@@ -201,3 +202,37 @@ def test_input_validation():
 def test_build_levels_shape():
     levels = build_levels(leaves(7))
     assert [len(lv) for lv in levels] == [7, 4, 2, 1]
+
+
+# ---------------- proof wire encoding (used by the reveal server and the verifier) ----------------
+
+def test_proof_json_roundtrip_and_shape():
+    from porf.merkle import proof_from_json, proof_to_json
+
+    ls = leaves(7)
+    for idx in (0, 3, 6):
+        proof = build_proof(ls, idx)
+        wire = proof_to_json(proof)
+        assert [set(step) for step in wire] == [{"sibling_hash", "sibling_is_left"}] * len(proof)
+        assert all(len(step["sibling_hash"]) == 64 and isinstance(step["sibling_is_left"], bool) for step in wire)
+        assert proof_from_json(json.loads(json.dumps(wire))) == proof  # survives a JSON round trip
+    # a hardcoded example pins the format
+    leaf0, leaf1 = leaves(2)
+    assert proof_to_json(build_proof([leaf0, leaf1], 1)) == [{"sibling_hash": leaf0.hex(), "sibling_is_left": True}]
+
+
+@pytest.mark.parametrize("bad", [
+    "not a list",
+    [{"sibling_hash": "00" * 32}],                                            # missing side
+    [{"sibling_hash": "00" * 32, "sibling_is_left": 1}],                     # side not a bool
+    [{"sibling_hash": "00" * 31, "sibling_is_left": True}],                  # too short
+    [{"sibling_hash": "zz" * 32, "sibling_is_left": True}],                  # not hex
+    [{"sibling_hash": "AB" * 32, "sibling_is_left": True}],                  # uppercase hex is not canonical
+    [{"sibling_hash": "00" * 32, "sibling_is_left": True, "extra": 1}],      # unknown key
+    [["00" * 32, True]],                                                     # wrong step type
+])
+def test_proof_from_json_rejects_malformed_input(bad):
+    from porf.merkle import proof_from_json
+
+    with pytest.raises(ValueError):
+        proof_from_json(bad)

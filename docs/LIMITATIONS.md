@@ -28,4 +28,13 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - Sponsor integrations: none built. *(Update if any are added after the Day 5 gate.)*
 
 ## Shortcuts in code
-*(none yet)* — SlotHashes is the intended sampling source; if the verifier-supplied blockhash fallback is ever used, record it here with the grinding caveat: the verifier could grind blockhashes to bias the sample.
+- **SHORTCUT: the node's reveal URL is not on-chain.** `Request`/`Submission` carry no endpoint. The node writes its URL to `.localnet/reveal.json` (`node/client.py`, `start_server`) and the verifier is pointed at it through that file or `PORF_REVEAL_URL`. A real deployment would put an endpoint (or a registry entry) on-chain. Consequence: the verifier trusts whoever controls that file, and only one node per machine can be announced.
+- Verifier-supplied blockhash fallback for sampling: **not used**; SlotHashes is the intended source. If that changes it must be recorded here with the grinding caveat (the verifier could grind blockhashes to bias the sample).
+
+## Node
+- **The reveal server is plain HTTP with no authentication** and serves any committed job to anyone who can reach it.
+- **One job at a time**, and a crash during rendering discards the half-finished batch (no per-frame resume).
+- Output directories are named by `request_id`, which is only unique per requester; the node refuses (before staking) a request whose id collides with an existing job directory rather than mixing the two.
+- The node polls with `getProgramAccounts` via the chain CLI (about 0.7 s per call). Fine on localnet; a public devnet RPC may rate-limit it.
+- A job marked `failed` is never retried automatically, and a failed job can leave the node's stake locked until the request is refunded or slashed.
+- `--cheat` is accepted but does nothing yet; a node started with it behaves honestly (and logs that).

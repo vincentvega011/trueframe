@@ -153,3 +153,25 @@ def verify_frame(
     except ValueError:
         return False
     return verify_proof(leaf, frame_index, proof, root, frame_count)
+
+
+def proof_to_json(proof: Proof) -> list[dict]:
+    """Wire encoding of a proof: leaf level first, each step {"sibling_hash": <64 hex>, "sibling_is_left": bool}."""
+    return [{"sibling_hash": sibling.hex(), "sibling_is_left": is_left} for sibling, is_left in proof]
+
+
+def proof_from_json(data) -> Proof:
+    """Inverse of proof_to_json. Raises ValueError on anything malformed (never returns a partial proof)."""
+    if not isinstance(data, list):
+        raise ValueError("proof must be a list")
+    proof: Proof = []
+    for step in data:
+        if not isinstance(step, dict) or set(step) != {"sibling_hash", "sibling_is_left"}:
+            raise ValueError("each proof step must be exactly {sibling_hash, sibling_is_left}")
+        h, side = step["sibling_hash"], step["sibling_is_left"]
+        if not isinstance(h, str) or len(h) != 2 * HASH_LEN or any(c not in "0123456789abcdef" for c in h):
+            raise ValueError("sibling_hash must be 64 lowercase hex characters")
+        if not isinstance(side, bool):
+            raise ValueError("sibling_is_left must be a boolean")
+        proof.append((bytes.fromhex(h), side))
+    return proof

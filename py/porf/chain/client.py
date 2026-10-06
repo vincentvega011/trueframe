@@ -202,6 +202,10 @@ class ChainClient:
         raise ChainError("InvalidInput", "give either `request` or both `requester` and `request_id`", kind="input")
 
     # -- reads
+    def pubkey(self, signer: str) -> str:
+        """Public key of a keypair file."""
+        return self.call("pubkey", {"signer": signer})["pubkey"]
+
     def info(self) -> dict[str, Any]:
         return self.call("info")
 

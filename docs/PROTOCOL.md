@@ -377,3 +377,75 @@ Effects: `Submission` records `request`, `node`, `merkle_root`, `frame_count`, `
 **Double commit** fails with the system program's "already in use" error, not `InvalidStatus`: `submission` is created with `init`, and Anchor creates it before the handler runs. The first commitment is therefore immutable, and a node cannot swap its root. The program cannot check that the root is a *correct* Merkle root; that is the verifier's job (§7).
 
 Tests (`tests/submit_commitment.rs`, 15): happy path with every `Submission` field exact (including `commit_slot` and rent paid by the node, not the requester); single-nonzero-byte root accepted; wrong node, requester/verifier/admin, unclaimed request and missing signature rejected; every non-`Claimed` status rejected; commit exactly at the deadline succeeds and one second later fails; deadline counted from the claim, not from creation; frame counts 0, 1, 9, 11, 1024 and `u32::MAX` rejected; zero root rejected; double commit (same and different root) fails and keeps the first root; another request's submission address and a fake system program rejected.
+
+## 16. The node (`py/porf/node/`)
+
+Run: `python -m porf.node.client --keypair keys/node.json [--out out] [--poll 5] [--port 8787] [--samples 64] [--only-request ADDR] [--only-requester PUBKEY] [--cheat MODE]`. The node reaches the chain only through `porf.chain.client`. Frame hashing is defined once, in `porf/records.py` (`hash_frame`, `FrameHashes`), and will be reused by the verifier.
+
+### 16.1 Poll loop
+
+Every `--poll` seconds (default 5) one `list-requests` call, then, in order: (1) advance every local job that is not finished; (2) **adopt** any request that is `Claimed` on chain by this node but has no local job (a crash between the claim transaction and the first write of `job.json`); (3) only if nothing else was done, claim the oldest `Open` request that passes the filters. One job is processed at a time. Filters: `--only-request`, `--only-requester`, `scene_type == 0`, `num_frames <= --max-frames` (1024), and the node's token balance must cover `stake_amount`. A lost race (`InvalidStatus`, `ClaimDeadlinePassed`) is logged and ignored. Before staking the node checks that `<out>/<request_id>/` does not already belong to a different request (`request_id` is only unique per requester); on a collision it refuses, before any stake is spent.
+
+### 16.2 Job directory and state machine
+
+`<out>/<request_id>/` holds `job.json`, `leaves.json`, `render_spec.json`, `blender.log` and the renderer's `frame_<i>/` directories (§14.2). `job.json` is written atomically (temp file + rename). Fields: `request` (address), `requester`, `request_id`, `seed`, `num_frames`, `width`, `height`, `occlusion_level` (all copied from the chain), `state`, `claim_signature`, `merkle_root`, `commit_signature`, `commit_slot`, `committed_at`, `attempts`, `error`, timestamps.
+
+| State | Meaning | Next action on (re)start |
+|---|---|---|
+| `claimed` | stake paid, nothing rendered | render the whole batch again (a half-finished batch is discarded; there is no per-frame resume), write `leaves.json`, go to `rendered` |
+| `rendered` | frames and `leaves.json` on disk, not committed | submit the commitment; **no rendering** |
+| `committed` | on-chain `Submission` matches `leaves.json` | nothing; the reveal server serves it |
+| `failed` | gave up (`error` says why) | none; never retried automatically |
+
+Recovery cases, each covered by a test: crash after rendering (restart commits without rendering); crash after the commit (restart does nothing and serves); crash after the commit transaction but before `job.json` was updated (the node sees the request already `Committed`, or the second `submit_commitment` fails with "already in use", and reconciles by comparing the on-chain root with `leaves.json`); claim landed but no `job.json` (adopted). A job is marked `failed` when the request is no longer `Claimed` for it, another node holds the claim, the on-chain commitment differs from `leaves.json`, a non-transient chain error occurs (e.g. `CommitDeadlinePassed`), or a render fails three times. RPC errors and timeouts are retried on the next poll. A stale request snapshot never fails a job: the claim is re-read from the chain first.
+
+### 16.3 `leaves.json` (the commitment)
+
+Written once, after rendering and after the cheat hook (§16.6), before the commit. Canonical JSON: `{"frame_count": N, "merkle_root": "<hex>", "frames": [{"frame_index", "scene_hash", "annotation_hash", "image_hash", "seg_hash", "leaf_hash"}, ...]}` (all hashes lowercase hex). The root is computed from the files on disk at that moment; the node does not re-read all frames when serving.
+
+### 16.4 Reveal endpoint
+
+Plain HTTP (default `127.0.0.1:8787`, `--port 0` picks a free port). Only jobs in state `committed` are served.
+
+| Request | Response |
+|---|---|
+| `GET /frame/<i>` | frame `i` of the most recently committed job |
+| `GET /frame/<i>?request=<address>` | frame `i` of that request's job |
+| `GET /health` | `{"ok": true, "committed": [<request addresses>]}` |
+| anything else; `<i>` not a non-negative integer; `<i> >= frame_count`; unknown or uncommitted `request`; no committed job | **404** `{"error": "..."}` |
+| unexpected server failure | 500 `{"error": "..."}` |
+
+A 200 body for `/frame/<i>`:
+
+```json
+{
+  "request": "<request address>",
+  "frame_index": 3,
+  "frame_count": 10,
+  "merkle_root": "<64 hex>",
+  "leaf": {"frame_index": 3, "scene_hash": "<64 hex>", "annotation_hash": "<64 hex>",
+           "image_hash": "<64 hex>", "seg_hash": "<64 hex>", "leaf_hash": "<64 hex>"},
+  "proof": [{"sibling_hash": "<64 hex>", "sibling_is_left": true}, ...],
+  "scene": { ...scene.json as a JSON object... },
+  "annotations": { ...annotations.json as a JSON object... },
+  "rgb_png": "<base64 of rgb.png>",
+  "seg_png": "<base64 of seg.png>",
+  "depth_png": "<base64 of depth.png, or null>"
+}
+```
+
+**Proof encoding:** `proof` is the Merkle proof of §4, leaf level first, one object per level: `sibling_hash` is 64 lowercase hex characters, `sibling_is_left` a JSON boolean. `porf.merkle.proof_to_json` / `proof_from_json` implement it; the decoder rejects anything malformed (wrong length, upper case, non-hex, non-boolean side, extra keys). `scene` and `annotations` are the parsed files; they are canonical JSON on disk, so `hash_json(object)` equals the hash of the file bytes. Everything else is hashed from the decoded base64 bytes.
+
+**What is committed versus what is served:** `leaf`, `proof` and `merkle_root` come from `leaves.json` (what was committed); `scene`, `annotations` and the PNGs are read from disk at request time. If a file was changed after the commit, the node serves it anyway (and logs a warning) and the verifier's hash comparison (§7 check 3) rejects it; the node neither repairs nor hides the difference. To verify a frame: recompute the four hashes from the served content, rebuild the leaf with `frame_index`, and run `merkle.verify_frame` against the **on-chain** root and `frame_count` (never the root in the response).
+
+### 16.5 Finding the node (SHORTCUT)
+
+The reveal URL is not on-chain. The node writes `{"url", "node", "started_at"}` to `.localnet/reveal.json` (`--announce-file`, empty string disables) when its server starts; the verifier will read that file or the `PORF_REVEAL_URL` environment variable (implemented with the verifier, Day 4). Marked `# SHORTCUT:` in `node/client.py`; see LIMITATIONS.md.
+
+### 16.6 Cheat hooks
+
+`node/cheats.py` exposes `before_render(mode, seed) -> seed` and `after_render(mode, job_dir, num_frames)`, called around the render and before the leaves are built, so a cheat's changes are what gets committed. Both are no-ops today: `--cheat <mode>` is accepted (`reuse_frames`, `fake_boxes`, `wrong_seed`, `partial`), logs a warning that the node is behaving honestly, and does nothing else. Day 5 implements them.
+
+### 16.7 Tests (`py/tests/test_node.py`)
+
+No validator needed: frame hashing against the spec and an independent recomputation, leaf cache, reveal payloads verifying for 1, 2, 3, 7 and 8 frames, out-of-range indexes, a file changed after the commit (not hidden; leaf block still shows the committed values), server routes and every 404 case, request selection and latest-commit default, job state machine and collision guard, unreadable job files, cheat hooks are no-ops. Against a live localnet with real Blender renders: **the gate** (a 10-frame request is picked up, rendered and committed; the on-chain root equals the root recomputed independently from the files on disk; every `/frame/<i>` proof verifies against the on-chain root; the served scene equals `generate_scene` for the on-chain parameters; out-of-range is 404; a second poll does nothing), the four recovery cases above, a claim by another node left alone, and the real `python -m porf.node.client` process end to end.

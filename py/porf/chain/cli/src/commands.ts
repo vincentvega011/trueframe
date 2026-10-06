@@ -215,6 +215,10 @@ async function airdrop(ctx: Ctx, args: Args): Promise<Result> {
   return { signature: sig, lamports };
 }
 
+async function pubkeyCmd(ctx: Ctx, args: Args): Promise<Result> {
+  return { pubkey: ctx.signer(args).publicKey.toBase58() };
+}
+
 async function info(ctx: Ctx): Promise<Result> {
   return {
     rpc_url: rpcUrl(),
@@ -240,5 +244,6 @@ export const COMMANDS: Record<string, (ctx: Ctx, args: Args) => Promise<Result>>
   "mint-to": mintToCmd,
   "token-balance": tokenBalance,
   airdrop,
+  pubkey: pubkeyCmd,
   info: (ctx) => info(ctx),
 };

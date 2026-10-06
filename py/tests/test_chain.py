@@ -5,13 +5,12 @@ import json
 import re
 import subprocess
 import time
-import urllib.request
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from porf.chain import client as chain_mod
+import livenet
 from porf.chain.client import REPO_ROOT, ChainClient, ChainError, Config, CreateRequestParams, _build, _prep
 
 IDL = REPO_ROOT / "target" / "idl" / "proof_of_render.json"
@@ -108,29 +107,9 @@ def test_error_names_are_read_from_the_idl_at_runtime(tmp_path):
 
 # ============================================================ against a live localnet
 
-def _rpc_healthy(url: str) -> bool:
-    try:
-        req = urllib.request.Request(url, data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "getHealth"}).encode(), headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=2) as r:
-            return json.load(r).get("result") == "ok"
-    except Exception:
-        return False
-
-
 @pytest.fixture(scope="module")
 def net():
-    if not ENV_FILE.exists():
-        pytest.skip("no localnet: run scripts/localnet_up.sh")
-    env = json.loads(ENV_FILE.read_text())
-    if not _rpc_healthy(env["rpc_url"]):
-        pytest.skip(f"validator not reachable at {env['rpc_url']}: run scripts/localnet_up.sh")
-    if not chain_mod._TSX.exists():
-        pytest.skip("CLI dependencies not installed (npm ci in py/porf/chain/cli)")
-    if not IDL.exists():
-        pytest.skip("IDL missing: run anchor build")
-    client = ChainClient(rpc_url=env["rpc_url"])
-    idl_errors = {e["name"]: e["code"] for e in json.loads(IDL.read_text())["errors"]}
-    return SimpleNamespace(client=client, env=env, idl_errors=idl_errors, ids=iter(range(int(time.time() * 1000), 2**62)))
+    return livenet.make_net()
 
 
 def _params(request_id: int, **over) -> CreateRequestParams:
