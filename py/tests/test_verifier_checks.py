@@ -309,16 +309,42 @@ def test_the_iou_requirement_is_met_by_honest_data_at_any_slack_up_to_one(honest
         assert run_one(C.check_annotation_plausibility, honest.reveal(i), i, honest.ctx(full)).passed, i
 
 
-def test_placeholder_thresholds_are_labelled_until_calibrated(honest):
-    assert "PLACEHOLDER" in run_one(C.check_annotation_plausibility, honest.reveal(1), 1, honest.ctx()).detail
-    assert C.DEFAULT_THRESHOLDS.calibrated is False
-    calibrated = Thresholds(per_class={}, default=ClassThresholds(2.0, 0.3), visibility_tolerance=1e-3, calibrated=True)
-    assert "PLACEHOLDER" not in run_one(C.check_annotation_plausibility, honest.reveal(1), 1, honest.ctx(calibrated)).detail
+def test_the_default_thresholds_are_the_approved_calibrated_values(honest):
+    th = C.DEFAULT_THRESHOLDS
+    assert th.calibrated is True
+    for cls in ("rack", "pallet", "box", "forklift"):
+        assert th.for_class(cls) == ClassThresholds(pixel_tolerance=1.0, min_iou=0.30)
+    assert th.default == ClassThresholds(pixel_tolerance=1.0, min_iou=0.30)
+    assert th.seg_rerender == SegRerenderThresholds(min_global_agreement=0.999, min_object_iou=0.90, min_object_pixels=50)
+    detail = run_one(C.check_annotation_plausibility, honest.reveal(1), 1, honest.ctx()).detail
+    assert "PLACEHOLDER" not in detail and "UNCALIBRATED" not in detail
+
+
+def test_uncalibrated_thresholds_are_labelled_in_the_details(honest):
+    provisional = Thresholds(per_class={}, default=ClassThresholds(2.0, 0.3), visibility_tolerance=1e-3,
+                             seg_rerender=SegRerenderThresholds(0.99, 0.5, 50))      # calibrated defaults to False
+    assert provisional.calibrated is False
+    assert "UNCALIBRATED" in run_one(C.check_annotation_plausibility, honest.reveal(1), 1, honest.ctx(provisional)).detail
+    assert "UNCALIBRATED" in run_one(C.check_seg_rerender, honest.reveal(1), 1, honest.ctx(provisional)).detail
+
+
+def test_the_calibrated_tolerance_is_tighter_than_the_old_placeholder_and_still_passes_honest_boxes(honest):
+    # honest overshoot is at most half a pixel (pixel-centre sampling), so 1.0 px has 2x headroom
+    worst = 0.0
+    for i in range(honest.n):
+        r = run_one(C.check_annotation_plausibility, honest.reveal(i), i, honest.ctx())
+        assert r.passed
+        worst = max(worst, r.metrics.get("max_overshoot_px") or 0.0)
+    assert worst <= 0.5 + 1e-6
+    # a box 1.5 px outside the projection (inside the old 2.0 px placeholder tolerance) is now rejected
+    node = HonestNode(honest.job.dir.parent / "grown", n=4, mutate=lambda i, f: i == 2 and biggest_visible(f).update(
+        bbox=[max(0, biggest_visible(f)["bbox"][0] - 2), *biggest_visible(f)["bbox"][1:]]))
+    assert not run_one(C.check_annotation_plausibility, node.reveal(2), 2, node.ctx()).passed
 
 
 def test_calibration_metrics_are_reported(honest):
     m = run_one(C.check_annotation_plausibility, honest.reveal(1), 1, honest.ctx()).metrics
-    assert m["boxes_checked"] > 0 and 0 <= m["max_overshoot_px"] < 2 and m["min_iou_margin"] >= 0
+    assert m["boxes_checked"] > 0 and 0 <= m["max_overshoot_px"] < 1.0 and m["min_iou_margin"] >= 0
     assert {"id", "class", "overshoot_px", "iou", "required_iou", "visibility", "visible_fraction"} <= set(m["objects"][0])
 
 
@@ -445,3 +471,166 @@ def test_a_fully_hidden_object_with_no_box_is_consistent(honest):
         hidden_seen += sum(1 for a in rv.annotations["objects"] if a["bbox"] is None)
         assert run_one(C.check_segmentation_consistency, rv, i, ctx).passed
     assert hidden_seen > 0, "the fixture should include fully hidden objects"
+
+
+# ---------------------------------------------------------------- 7. seg re-render
+
+from porf.node import cheats                                              # noqa: E402
+from porf.seg import decode_seg                                           # noqa: E402
+from porf.verifier.checks import SegRerenderThresholds                    # noqa: E402
+from porf.verifier.segcompare import compare_seg                          # noqa: E402
+
+
+def seg_of(raw) -> np.ndarray:
+    return decode_seg(base64.b64decode(raw["seg_png"]))
+
+
+def with_seg(raw, seg: np.ndarray):
+    raw["seg_png"] = b64(png_bytes(seg.astype(np.uint16), "I;16"))
+    return raw
+
+
+def test_an_honest_seg_matches_its_rerender_exactly(honest):
+    for i in range(honest.n):
+        r = run_one(C.check_seg_rerender, honest.reveal(i), i, honest.ctx())
+        assert r.passed and r.metrics["global_agreement"] == 1.0 and r.metrics["mismatched_pixels"] == 0
+        assert r.metrics["worst_object"]["iou"] == 1.0 and r.metrics["objects_compared"] > 0
+        assert "PLACEHOLDER" not in r.detail and "UNCALIBRATED" not in r.detail
+
+
+def test_check_7_fails_loudly_without_a_reference_and_on_size_or_decode_problems(honest):
+    ctx = honest.ctx()
+    ctx.reference_seg = None
+    assert "no re-rendered reference" in run_one(C.check_seg_rerender, honest.reveal(1), 1, ctx).detail
+    ctx.reference_seg = {2: honest.reference[2]}                       # a reference for a different frame only
+    assert "no re-rendered reference" in run_one(C.check_seg_rerender, honest.reveal(1), 1, ctx).detail
+    ctx.reference_seg = {1: np.zeros((10, 10), np.int64)}
+    assert "the re-render" in run_one(C.check_seg_rerender, honest.reveal(1), 1, ctx).detail
+    raw = honest.raw(1)
+    raw["seg_png"] = b64(b"garbage")
+    assert "cannot compare" in run_one(C.check_seg_rerender, Reveal.parse(raw), 1, honest.ctx()).detail
+
+
+def test_a_few_flipped_pixels_are_tolerated_but_real_differences_are_not(honest):
+    i = 1
+    seg = seg_of(honest.raw(i))
+    ref = honest.reference[i]
+    # 20 pixels flipped on object boundaries: below every placeholder floor
+    flipped = seg.copy()
+    ys, xs = np.nonzero((seg != 0) & (np.roll(seg, 1, axis=1) == 0))
+    flipped[ys[:20], xs[:20]] = 0
+    assert (flipped != ref).sum() == 20
+    assert run_one(C.check_seg_rerender, Reveal.parse(with_seg(honest.raw(i), flipped)), i, honest.ctx()).passed
+
+    # an object shifted by 12 pixels
+    big = max(np.unique(seg)[1:], key=lambda k: (seg == k).sum())
+    shifted_seg = seg.copy()
+    shifted_seg[seg == big] = 0
+    shifted_seg[np.roll(seg == big, 12, axis=1)] = big
+    r = run_one(C.check_seg_rerender, Reveal.parse(with_seg(honest.raw(i), shifted_seg)), i, honest.ctx())
+    assert not r.passed and f"object {big}" in r.detail and "mask IoU" in r.detail
+
+    # an object erased entirely
+    erased = seg.copy()
+    erased[seg == big] = 0
+    r = run_one(C.check_seg_rerender, Reveal.parse(with_seg(honest.raw(i), erased)), i, honest.ctx())
+    assert not r.passed and f"object {big}" in r.detail and "mask IoU 0.000" in r.detail
+
+    # scattered noise over 5% of the image
+    noisy = seg.copy()
+    rng = np.random.RandomState(0)
+    noisy[rng.rand(*seg.shape) < 0.05] = 3
+    r = run_one(C.check_seg_rerender, Reveal.parse(with_seg(honest.raw(i), noisy)), i, honest.ctx())
+    assert not r.passed and "global pixel agreement" in r.detail
+
+
+def test_objects_below_the_pixel_floor_are_not_judged(honest):
+    th = honest.ctx().thresholds.seg_rerender
+    for i in range(honest.n):          # find a frame that has a tiny object (a sliver of something mostly hidden)
+        ref = honest.reference[i]
+        ids, counts = np.unique(ref[ref != 0], return_counts=True)
+        small = [int(k) for k, c in zip(ids, counts) if c < th.min_object_pixels]
+        large = [int(k) for k, c in zip(ids, counts) if c >= th.min_object_pixels]
+        if small and large:
+            break
+    else:
+        pytest.fail("the honest fixture should contain a frame with a tiny object")
+    seg = seg_of(honest.raw(i))
+    gone = seg.copy()
+    gone[np.isin(seg, small)] = 0                                      # a tiny object vanishes: not judged, so still a pass
+    assert run_one(C.check_seg_rerender, Reveal.parse(with_seg(honest.raw(i), gone)), i, honest.ctx()).passed
+    gone = seg.copy()
+    gone[seg == large[0]] = 0                                          # a real object vanishes: judged, so a fail
+    assert not run_one(C.check_seg_rerender, Reveal.parse(with_seg(honest.raw(i), gone)), i, honest.ctx()).passed
+
+
+def test_thresholds_for_check_7_are_configurable(honest):
+    seg = seg_of(honest.raw(1))
+    seg[:5, :] = 7                                                     # 5 rows of 240: ~2% of the image differs
+    strict = Thresholds(per_class={}, default=C.ClassThresholds(2.0, 0.3), visibility_tolerance=1e-3,
+                        seg_rerender=SegRerenderThresholds(0.999, 0.5, 50))
+    loose = Thresholds(per_class={}, default=C.ClassThresholds(2.0, 0.3), visibility_tolerance=1e-3,
+                       seg_rerender=SegRerenderThresholds(0.90, 0.0, 10**9))
+    rv = Reveal.parse(with_seg(honest.raw(1), seg))
+    assert not run_one(C.check_seg_rerender, rv, 1, honest.ctx(strict)).passed
+    assert run_one(C.check_seg_rerender, rv, 1, honest.ctx(loose)).passed
+
+
+def test_compare_seg_measures_what_it_says():
+    a = np.zeros((10, 10), np.int64)
+    b = a.copy()
+    a[:5, :5] = 1                      # 25 px
+    b[:5, :3] = 1                      # 15 px, all inside a's mask
+    c = compare_seg(a, b)
+    assert c.mismatched_pixels == 10 and c.global_agreement == 0.9
+    o = c.objects[1]
+    assert (o.revealed_pixels, o.reference_pixels, o.intersection) == (25, 15, 15) and o.iou == pytest.approx(15 / 25)
+    only_a = np.zeros((10, 10), np.int64)
+    only_a[0, 0] = 2
+    assert compare_seg(only_a, np.zeros((10, 10), np.int64)).objects[2].iou == 0.0
+    assert compare_seg(a, a).global_agreement == 1.0
+    with pytest.raises(ValueError):
+        compare_seg(a, np.zeros((3, 3), np.int64))
+
+
+# ---- the no_occlusion cheat: consistent through checks 1-6, caught by check 7
+
+def test_the_no_occlusion_cheat_passes_checks_1_to_6_and_fails_check_7(tmp_path):
+    node = HonestNode(tmp_path, n=8, seed=42, occlusion=3)
+    cheats.after_render("no_occlusion", node.job.dir, node.n)          # the real cheat code, rewriting seg.png and annotations.json
+    node.recommit()                                                    # ... and committing it consistently
+    ctx = node.ctx()
+    caught = 0
+    for i in range(node.n):
+        res = results(node.reveal(i), i, ctx)
+        assert all(res[name].passed for name in CHECK_NAMES[:6]), (i, [(n, r.detail) for n, r in res.items() if not r.passed])
+        if not res["seg_rerender"].passed:
+            caught += 1
+            assert "global pixel agreement" in res["seg_rerender"].detail or "mask IoU" in res["seg_rerender"].detail
+    assert caught >= 6, f"check 7 should catch the cheat in nearly every occluded frame, caught {caught} of {node.n}"
+
+
+def test_the_cheat_really_changes_the_segmentation_and_keeps_boxes_consistent(tmp_path):
+    node = HonestNode(tmp_path, n=4, seed=42, occlusion=3)
+    before = {i: seg_of(node.raw(i)).copy() for i in range(4)}
+    cheats.after_render("no_occlusion", node.job.dir, 4)
+    node.recommit()
+    for i in range(4):
+        after = seg_of(node.raw(i))
+        assert (after != before[i]).any()
+        assert run_one(C.check_segmentation_consistency, node.reveal(i), i, node.ctx()).passed   # boxes derived from the forged seg
+        # every object's full silhouette is painted, so no object is fully hidden unless it is off screen
+        ann = node.raw(i)["annotations"]["objects"]
+        assert sum(1 for a in ann if a["bbox"] is None) <= sum(1 for a in node.reveal(i).annotations["objects"] if a["bbox"] is None)
+
+
+def test_cheat_announcements_distinguish_implemented_from_unimplemented_modes(caplog):
+    with caplog.at_level("WARNING"):
+        cheats.announce("no_occlusion")
+        cheats.announce("fake_boxes")
+    assert "COMMIT FRAUDULENT DATA" in caplog.text and "not implemented yet" in caplog.text
+    assert cheats.IMPLEMENTED == ("no_occlusion",)
+    assert cheats.after_render("fake_boxes", Path("/nonexistent"), 3) is None   # an unimplemented mode touches nothing
+
+
+from pathlib import Path   # noqa: E402

@@ -55,7 +55,8 @@ def synthetic_seg(scene: dict) -> np.ndarray:
         proj = project_box(cam, obj)
         if proj.status == OK:
             x0, y0, x1, y1 = proj.box
-            seg[int(math.floor(y0)): int(math.ceil(y1)), int(math.floor(x0)): int(math.ceil(x1))] = obj["id"]
+            # pixel-centre sampling, like the real 1-sample id pass: pixel i is covered when i + 0.5 lies inside the box
+            seg[int(math.ceil(y0 - 0.5)): int(math.ceil(y1 - 0.5)), int(math.ceil(x0 - 0.5)): int(math.ceil(x1 - 0.5))] = obj["id"]
     return seg
 
 
@@ -81,6 +82,8 @@ class HonestNode:
             claim_duration=600, commit_duration=900, challenge_window_secs=30, node="Node111", status="Challenged",
             created_at=1, claimed_at=2, claim_deadline=601, commit_deadline=902, challenge_window_end=999_999_999_999, bump=255)
         self.job = Job.create(tmp_path, ADDRESS, self.request)
+        # the verifier's own re-render of the id pass: the TRUE image for the REQUESTED scene, whatever the node later commits
+        self.reference = {i: synthetic_seg(generate_scene(seed, i, occlusion, W, H)).astype(np.int64) for i in range(n)}
         for i in range(n):
             scene = generate_scene(scene_seed if scene_seed is not None else seed, i, occlusion, W, H)
             seg = synthetic_seg(scene)
@@ -100,6 +103,13 @@ class HonestNode:
             request=ADDRESS, node="Node111", merkle_root=self.cache["merkle_root"], frame_count=n, commit_slot=100,
             sample_seed="ab" * 32, sample_slot=149, sample_count=min(n, 7), verdict="Pending", bump=250)
 
+    def recommit(self) -> None:
+        """Rebuild the commitment from whatever is on disk now (a cheat that rewrote files before committing)."""
+        import dataclasses
+        self.cache = build_leaf_cache(self.job)
+        write_leaf_cache(self.job, self.cache)
+        self.submission = dataclasses.replace(self.submission, merkle_root=self.cache["merkle_root"])
+
     def raw(self, index: int) -> dict:
         """What the reveal server would return for this frame (a fresh copy to tamper with)."""
         return copy.deepcopy(reveal_payload(self.job, index))
@@ -108,7 +118,7 @@ class HonestNode:
         return Reveal.parse(self.raw(index))
 
     def ctx(self, thresholds=DEFAULT_THRESHOLDS, seen: SeenImages | None = None) -> VerifyContext:
-        return VerifyContext(ADDRESS, self.request, self.submission, thresholds, seen or SeenImages())
+        return VerifyContext(ADDRESS, self.request, self.submission, thresholds, seen or SeenImages(), reference_seg=self.reference)
 
 
 def other_root_submission(node: HonestNode, root_hex: str) -> Submission:

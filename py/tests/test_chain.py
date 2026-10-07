@@ -324,3 +324,12 @@ def test_non_program_failures_are_structured(net):
     with pytest.raises(ChainError) as err:
         ChainClient(rpc_url="http://127.0.0.1:1").get_config()  # nothing listening
     assert err.value.name == "RpcError" and err.value.kind == "rpc"
+
+
+def test_the_demo_challenge_window_defaults_to_60_seconds():
+    """3 x the worst measured loaded verification (16.9 s) is 51 s; rounded up to 60 s for screen-recording load (PROTOCOL.md 17.6)."""
+    from porf.chain.client import DEFAULT_CHALLENGE_WINDOW_SECS
+    p = CreateRequestParams(request_id=1, seed=1, num_frames=1, price_per_frame=1, claim_duration=1, commit_duration=1)
+    assert DEFAULT_CHALLENGE_WINDOW_SECS == 60 and p.challenge_window_secs == 60
+    assert CreateRequestParams(request_id=1, seed=1, num_frames=1, price_per_frame=1, claim_duration=1, commit_duration=1,
+                               challenge_window_secs=6).challenge_window_secs == 6

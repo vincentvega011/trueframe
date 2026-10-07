@@ -194,10 +194,11 @@ class FakeChain:
         return {"signature": "sigSlash"}
 
 
-def make_verifier(tmp_path, chain, node, fetch=None, **cfg):
+def make_verifier(tmp_path, chain, node, fetch=None, rerender=None, **cfg):
     fetch = fetch or (lambda url, request, index: node.reveal(index))
+    rerender = rerender or (lambda req, indices: {i: node.reference[i] for i in indices})   # the true render, without Blender
     config = VerifierConfig(keypair="keys/verifier.json", out_dir=tmp_path / "reports", reveal_url="http://node.invalid", **cfg)
-    return Verifier(config, chain=chain, fetch=fetch)
+    return Verifier(config, chain=chain, fetch=fetch, rerender=rerender)
 
 
 @pytest.fixture(scope="module")
@@ -224,9 +225,11 @@ def test_honest_node_is_judged_pass_and_the_report_says_why(tmp_path, honest):
     assert all([c["name"] for c in f["checks"]] == list(__import__("porf.verifier.checks", fromlist=["CHECK_NAMES"]).CHECK_NAMES) for f in rep["frames"])
     assert rep["verdict"] == "Pass" and rep["verdict_reasons"] == []
     assert rep["transactions"] == {"open_challenge": "sigOpen", "submit_verdict": "sigVerdict"}
-    assert rep["thresholds"]["calibrated"] is False and rep["reveal_url"] == "http://node.invalid"
+    assert rep["thresholds"]["calibrated"] is True and rep["reveal_url"] == "http://node.invalid"
+    assert rep["thresholds"]["seg_rerender"] == {"min_global_agreement": 0.999, "min_object_iou": 0.9, "min_object_pixels": 50}
+    assert rep["thresholds"]["per_class"]["box"] == {"pixel_tolerance": 1.0, "min_iou": 0.3}
     txt = (tmp_path / "reports" / ADDRESS / "report.txt").read_text()
-    assert "VERDICT: Pass" in txt and "PLACEHOLDERS" in txt and "frame    0: PASS" in txt
+    assert "VERDICT: Pass" in txt and "frame    0: PASS" in txt and "UNCALIBRATED" not in txt
 
 
 def test_a_pass_is_paid_only_after_the_window_with_the_amounts_recorded(tmp_path, honest):
@@ -398,3 +401,122 @@ def test_run_until_settled_returns_when_settled_and_times_out_otherwise(tmp_path
     down.fail_with["list_requests"] = ChainError("RpcError", "fetch failed", kind="rpc")
     with pytest.raises(TimeoutError):                    # keeps retrying through the outage instead of crashing
         make_verifier(tmp_path, down, honest, poll_interval=0.01).run_until_settled(timeout=0.2)
+
+
+# ---------------------------------------------------------------- the seg re-render inside the verifier
+
+def test_the_reference_is_rendered_once_for_the_whole_sample(tmp_path, honest):
+    calls = []
+
+    def spy(req, indices):
+        calls.append(list(indices))
+        return {i: honest.reference[i] for i in indices}
+
+    chain = FakeChain(honest)
+    make_verifier(tmp_path, chain, honest, rerender=spy).step()
+    assert calls == [sample_indices(bytes.fromhex(honest.submission.sample_seed), 8)]      # ONE call, all seven sampled frames
+    rep = read_report(tmp_path)
+    assert rep["reference_render"] == {"attempts": 1, "frames": calls[0], "seconds": rep["reference_render"]["seconds"]}
+    assert all(f["checks"][-1]["name"] == "seg_rerender" and f["checks"][-1]["passed"] for f in rep["frames"])
+
+
+def test_a_failed_rerender_is_retried_once_in_a_fresh_process(tmp_path, honest):
+    attempts = []
+
+    def flaky(req, indices):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RuntimeError("Blender failed (exit 1)")
+        return {i: honest.reference[i] for i in indices}
+
+    chain = FakeChain(honest)
+    make_verifier(tmp_path, chain, honest, rerender=flaky).step()
+    assert len(attempts) == 2 and chain.req.status == "Verified"
+    assert read_report(tmp_path)["reference_render"]["attempts"] == 2 and read_report(tmp_path)["verdict"] == "Pass"
+
+
+def test_two_failed_rerenders_mean_no_verdict_at_all(tmp_path, honest):
+    attempts = []
+
+    def broken(req, indices):
+        attempts.append(1)
+        raise RuntimeError("Blender crashed")
+
+    chain = FakeChain(honest)
+    v = make_verifier(tmp_path, chain, honest, rerender=broken)
+    assert v.step() == [f"opened challenge {ADDRESS}", f"error {ADDRESS}: seg re-render failed, no verdict posted"]
+    assert len(attempts) == 2                                              # exactly one retry
+    assert not any(c[0] == "submit_verdict" for c in chain.calls)          # neither Pass (hides fraud) nor Fail (slashes the innocent)
+    assert chain.req.status == "Challenged" and chain.sub.verdict == "Pending"
+    rep = read_report(tmp_path)
+    assert "failed twice" in rep["verification_error"] and "verdict" not in rep
+    # the next poll tries again while the window is open
+    assert len(attempts) == 2 and v.step() and len(attempts) == 4
+
+
+def test_an_offline_node_needs_no_rerender_and_a_partial_outage_renders_only_what_arrived(tmp_path, honest):
+    calls = []
+
+    def spy(req, indices):
+        calls.append(list(indices))
+        return {i: honest.reference[i] for i in indices}
+
+    def down(url, request, index):
+        raise RevealUnavailable("connection refused", 3)
+
+    chain = FakeChain(honest)
+    make_verifier(tmp_path, chain, honest, fetch=down, rerender=spy).step()
+    assert calls == [] and read_report(tmp_path)["reference_render"] == {"attempts": 0, "frames": [], "seconds": 0.0}
+
+    seen = []
+
+    def third_missing(url, request, index):
+        seen.append(index)
+        if len(seen) == 3:
+            raise RevealUnavailable("HTTP 404", 3)
+        return honest.reveal(index)
+
+    chain = FakeChain(honest)
+    make_verifier(tmp_path / "b", chain, honest, fetch=third_missing, rerender=spy).step()
+    assert calls == [seen[:2]]                                             # only the two reveals that arrived were re-rendered
+
+
+def test_a_node_with_no_occlusion_is_failed_by_the_verifier_even_though_checks_1_to_6_pass(tmp_path):
+    from porf.node import cheats
+    node = HonestNode(tmp_path / "node", n=8, occlusion=3)
+    cheats.after_render("no_occlusion", node.job.dir, node.n)
+    node.recommit()
+    chain = FakeChain(node)
+    make_verifier(tmp_path, chain, node).step()
+    rep = read_report(tmp_path)
+    assert rep["verdict"] == "Fail" and chain.req.status == "Slashed"
+    failing = {c["name"] for f in rep["frames"] for c in f["checks"] if not c["passed"]}
+    assert failing == {"seg_rerender"}                                     # the ONLY thing that catches it
+    assert all("seg_rerender failed" in r for r in rep["verdict_reasons"])
+
+
+def test_the_report_records_where_the_time_went(tmp_path, honest):
+    chain = FakeChain(honest)
+    make_verifier(tmp_path, chain, honest).step()
+    t = read_report(tmp_path)["timing"]
+    assert set(t) == {"open_challenge_s", "fetch_s", "rerender_s", "checks_s", "verdict_s", "total_s"}
+    assert all(v >= 0 for v in t.values()) and t["total_s"] >= max(t["fetch_s"], t["rerender_s"], t["checks_s"], t["verdict_s"])
+    assert "Timing (s):" in (tmp_path / "reports" / ADDRESS / "report.txt").read_text()
+
+
+def test_the_verifier_refuses_to_start_without_blender(tmp_path, honest, monkeypatch):
+    import porf.verifier.client as client_mod
+    monkeypatch.setattr(client_mod, "find_blender", lambda: None)
+    cfg = VerifierConfig(keypair="keys/verifier.json", out_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="Blender not found"):
+        Verifier(cfg, chain=FakeChain(honest))
+    Verifier(cfg, chain=FakeChain(honest), rerender=lambda req, idx: {})      # an injected re-render needs no Blender
+
+
+def test_the_report_says_so_when_the_thresholds_are_not_calibrated(tmp_path, honest):
+    from porf.verifier.checks import ClassThresholds, SegRerenderThresholds, Thresholds
+    provisional = Thresholds(per_class={}, default=ClassThresholds(2.0, 0.3), visibility_tolerance=1e-3,
+                             seg_rerender=SegRerenderThresholds(0.99, 0.5, 50))
+    make_verifier(tmp_path, FakeChain(honest), honest, thresholds=provisional).step()
+    assert read_report(tmp_path)["thresholds"]["calibrated"] is False
+    assert "UNCALIBRATED" in (tmp_path / "reports" / ADDRESS / "report.txt").read_text()

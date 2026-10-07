@@ -205,7 +205,7 @@ def test_cheat_hooks_are_noops_for_now(tmp_path, caplog):
     with caplog.at_level("WARNING"):
         cheats.announce("fake_boxes")
     assert "HONESTLY" in caplog.text
-    assert set(cheats.CHEAT_MODES) == {"reuse_frames", "fake_boxes", "wrong_seed", "partial"}
+    assert set(cheats.CHEAT_MODES) == {"reuse_frames", "fake_boxes", "wrong_seed", "partial", "no_occlusion"}
 
 
 # ============================================================ real node, real localnet, real Blender

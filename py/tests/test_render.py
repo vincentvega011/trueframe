@@ -211,3 +211,29 @@ def test_containment_assertion_fires_and_blender_exits_nonzero(tmp_path):
     assert not (frame_dir(tmp_path, 0) / "rgb.png").exists()  # failed before rendering anything
     # control: the identical job without the hook passes the same assertion
     render_frames(42, [0], tmp_path / "ok", samples=1)
+
+
+@pytest.mark.slow
+@needs_blender
+def test_the_seg_only_rerender_is_byte_identical_to_the_full_renderers_seg_png(tmp_path):
+    """The verifier's reference must be exactly what an honest node's own id pass produces (check 7 depends on this)."""
+    from porf.render.runner import render_seg_only
+    for seed, level in ((42, 3), (7, 0)):
+        full = tmp_path / f"full_{seed}"
+        render_frames(seed, [0, 3], full, level, samples=2)
+        ref_dir = tmp_path / f"seg_{seed}"
+        reference = render_seg_only(seed, [0, 3], ref_dir, level)
+        for i in (0, 3):
+            assert (frame_dir(full, i) / "seg.png").read_bytes() == (frame_dir(ref_dir, i) / "seg.png").read_bytes(), (seed, i)
+            assert (read_seg(frame_dir(full, i) / "seg.png") == reference[i]).all()
+            # seg-only mode renders nothing else
+            assert sorted(p.name for p in frame_dir(ref_dir, i).iterdir()) == ["scene.json", "seg.png"]
+        assert len(reference) == 2 and reference[0].shape == (480, 640)
+
+
+@pytest.mark.slow
+@needs_blender
+def test_the_seg_only_rerender_honours_the_requested_resolution(tmp_path):
+    from porf.render.runner import render_seg_only
+    ref = render_seg_only(42, [1], tmp_path, 3, width=320, height=240)
+    assert ref[1].shape == (240, 320)

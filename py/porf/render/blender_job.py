@@ -6,7 +6,8 @@ Blender is a renderer of a scene graph, not a generator: this file makes no rand
 Camera parameters arrive pre-computed in the spec (porf.scene.camera.blender_camera_spec),
 so no camera convention is re-derived here. Spec: docs/PROTOCOL.md sections 13 and 14.
 
-Per frame it writes rgb.png (8-bit), depth.png (16-bit) and seg.png (16-bit).
+Per frame it writes rgb.png (8-bit), depth.png (16-bit) and seg.png (16-bit). With spec["mode"] == "seg_only" (the
+verifier's re-render) it writes only seg.png, from the very same build and id pass.
 Two Cycles renders per frame:
   * main:  N samples, normal pixel filter, OpenImageDenoise -> rgb.png
   * aux:   1 sample, filter width 0.01     -> depth + object index (exact per-pixel values)
@@ -347,6 +348,7 @@ def main():
     t0 = time.time()
     stage = Stage(spec)
     log("TIMING", phase="setup", seconds=round(time.time() - t0, 3))
+    seg_only = spec.get("mode", "full") == "seg_only"  # the verifier's re-render: only the exact id pass, no RGB, no depth
     for fr in spec["frames"]:
         out_dir = fr["out_dir"]
         os.makedirs(out_dir, exist_ok=True)
@@ -358,6 +360,19 @@ def main():
         t = time.time()
         stage.build(graph, fr["camera"])
         t_build = time.time() - t
+        if seg_only:
+            t = time.time()
+            tmp = os.path.join(out_dir, ".tmp")
+            os.makedirs(tmp, exist_ok=True)
+            (_depth, w, h), (idx, w2, h2) = stage.render_aux(tmp)
+            assert (w, h) == (w2, h2) == tuple(fr["camera"]["resolution"])
+            ids_seen = encode_seg_png(os.path.join(out_dir, "seg.png"), idx, w, h, valid_ids)
+            for f in glob.glob(os.path.join(tmp, "*.exr")):
+                os.remove(f)
+            os.rmdir(tmp)
+            log("SEG_CHECK", frame=fr["frame_index"], ids_seen=ids_seen, ok=True)
+            log("TIMING", phase="frame", frame=fr["frame_index"], build=round(t_build, 3), aux=round(time.time() - t, 3))
+            continue
         t = time.time()
         stage.render_rgb(os.path.join(out_dir, "rgb.png"))
         t_rgb = time.time() - t

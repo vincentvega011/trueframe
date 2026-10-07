@@ -141,20 +141,26 @@ def _clip_polygon_to_rect(poly, w: float, h: float):
     return poly
 
 
+def silhouette_polygon(camera: Camera, obj: dict) -> list[tuple[float, float]]:
+    """Convex silhouette of the object's box, inside the image, as polygon vertices in pixels ([] if it is not on screen)."""
+    pixels, _ = _screen_points(camera, obj)
+    if len(pixels) < 3:
+        return []
+    hull = _convex_hull(pixels)
+    if len(hull) < 3:
+        return []
+    poly = _clip_polygon_to_rect(hull, float(camera.width), float(camera.height))
+    return poly if len(poly) >= 3 else []
+
+
 def silhouette_area(camera: Camera, obj: dict) -> float:
     """Pixel area, inside the image, of the convex silhouette of the object's box.
 
     This is the most the object could cover if nothing hid it. Returns 0.0 if the box is
     behind the camera or off-screen.
     """
-    pixels, _ = _screen_points(camera, obj)
-    if len(pixels) < 3:
-        return 0.0
-    hull = _convex_hull(pixels)
-    if len(hull) < 3:
-        return 0.0
-    poly = _clip_polygon_to_rect(hull, float(camera.width), float(camera.height))
-    if len(poly) < 3:
+    poly = silhouette_polygon(camera, obj)
+    if not poly:
         return 0.0
     area = 0.0
     for i, (x1, y1) in enumerate(poly):

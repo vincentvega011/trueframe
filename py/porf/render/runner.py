@@ -86,6 +86,59 @@ def build_annotations(scene: dict, seg: np.ndarray) -> dict:
     }
 
 
+def _run_blender(blender: str, spec_path: Path, out_dir: Path) -> tuple[str, float]:
+    """One Blender process for the whole spec. Returns (stdout, wall seconds); raises RuntimeError with the output's tail on failure."""
+    cmd = [blender, "-b", "--factory-startup", "-noaudio", "--python-exit-code", "1",
+           "-P", str(BLENDER_JOB), "--", "--spec", str(spec_path.resolve())]
+    t0 = time.time()
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    wall = time.time() - t0
+    (out_dir / "blender.log").write_text(proc.stdout + "\n--- stderr ---\n" + proc.stderr)
+    if proc.returncode != 0:
+        tail = "\n".join((proc.stdout + proc.stderr).splitlines()[-25:])
+        raise RuntimeError(f"Blender failed (exit {proc.returncode}). Last output:\n{tail}")
+    return proc.stdout, wall
+
+
+def render_seg_only(
+    seed: int,
+    frames: list[int],
+    out_dir: str | Path,
+    occlusion_level: int = 0,
+    width: int = DEFAULT_WIDTH,
+    height: int = DEFAULT_HEIGHT,
+    blender: str | None = None,
+) -> dict[int, np.ndarray]:
+    """The verifier's reference: regenerate the scenes from (seed, params) and render ONLY the exact object-id pass for all
+    `frames` in a single Blender process. Same build and same id pass as render_frames, so an honest node's seg.png
+    equals this on the same machine. Returns {frame_index: int64 array of ids, shape (height, width)}."""
+    blender = blender or find_blender()
+    if not blender:
+        raise RuntimeError("Blender not found: set $BLENDER or install it (see docs/ENV.md)")
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    scenes, spec_frames = {}, []
+    for i in frames:
+        scene = generate_scene(seed, i, occlusion_level, width, height)
+        scenes[i] = scene
+        fdir = frame_dir(out_dir, i)
+        fdir.mkdir(parents=True, exist_ok=True)
+        (fdir / "scene.json").write_bytes(canonical_bytes(scene))
+        spec_frames.append({"frame_index": i, "scene": str((fdir / "scene.json").resolve()), "out_dir": str(fdir.resolve()),
+                            "camera": blender_camera_spec(Camera.from_dict(scene["camera"]))})
+    spec_path = out_dir / "render_spec.json"
+    spec_path.write_text(json.dumps({"mode": "seg_only", "width": width, "height": height, "samples": 1, "gpu": False, "frames": spec_frames}, indent=1))
+    _run_blender(blender, spec_path, out_dir)
+    out: dict[int, np.ndarray] = {}
+    for i in frames:
+        seg = read_seg(frame_dir(out_dir, i) / "seg.png")
+        if seg.shape != (height, width):
+            raise RuntimeError(f"re-rendered seg for frame {i} has shape {seg.shape}, expected {(height, width)}")
+        check_seg_integrity(seg, scenes[i])
+        out[i] = seg
+    return out
+
+
 def render_frames(
     seed: int,
     frames: list[int],
@@ -126,18 +179,9 @@ def render_frames(
     spec_path = out_dir / "render_spec.json"
     spec_path.write_text(json.dumps(spec, indent=1))
 
-    cmd = [blender, "-b", "--factory-startup", "-noaudio", "--python-exit-code", "1",
-           "-P", str(BLENDER_JOB), "--", "--spec", str(spec_path.resolve())]
-    t0 = time.time()
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    wall = time.time() - t0
-    (out_dir / "blender.log").write_text(proc.stdout + "\n--- stderr ---\n" + proc.stderr)
-    if proc.returncode != 0:
-        tail = "\n".join((proc.stdout + proc.stderr).splitlines()[-25:])
-        raise RuntimeError(f"Blender failed (exit {proc.returncode}). Last output:\n{tail}")
-
-    timings = [json.loads(l.split(" ", 1)[1]) for l in proc.stdout.splitlines() if l.startswith("PORF_TIMING")]
-    seg_checks = [json.loads(l.split(" ", 1)[1]) for l in proc.stdout.splitlines() if l.startswith("PORF_SEG_CHECK")]
+    stdout, wall = _run_blender(blender, spec_path, out_dir)
+    timings = [json.loads(l.split(" ", 1)[1]) for l in stdout.splitlines() if l.startswith("PORF_TIMING")]
+    seg_checks = [json.loads(l.split(" ", 1)[1]) for l in stdout.splitlines() if l.startswith("PORF_SEG_CHECK")]
 
     results = {}
     for i in frames:

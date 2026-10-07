@@ -19,6 +19,8 @@ Do not upgrade mid-project. Verified installed on 2026-10-05 (macOS arm64, Darwi
 | Blender | **4.5.14 LTS** | `/Applications/Blender.app` (arm64 dmg, sha256 verified) |
 | Blender bundled Python | 3.11.15 (numpy 1.26.4) | |
 
+The **verifier also needs Blender** (same version): check 7 re-renders the sampled frames' segmentation itself, and the verifier refuses to start without it. Its output is only bit-identical to the node's if both use the same Blender build (PROTOCOL.md §17.5).
+
 ## Why these versions
 
 - **Anchor 1.1.2**: released 2026-06-26, ~3 months old when chosen (1.2.0 was ~1 month old). Its own CI builds against Solana 3.1.10 and Node 22.22.3, so those are used.

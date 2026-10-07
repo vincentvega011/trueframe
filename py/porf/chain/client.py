@@ -114,6 +114,11 @@ class RequestView:
     request: Request
 
 
+# Demo default for the challenge window: 60 s. The worst end-to-end verification of a 20-frame request measured 16.9 s under CPU load,
+# 3 x 16.9 = 51 s, rounded UP to 60 s because screen recording during the demo adds CPU load (docs/PROTOCOL.md section 17.6).
+DEFAULT_CHALLENGE_WINDOW_SECS = 60
+
+
 @dataclass(frozen=True)
 class CreateRequestParams:
     request_id: int
@@ -122,7 +127,7 @@ class CreateRequestParams:
     price_per_frame: int
     claim_duration: int
     commit_duration: int
-    challenge_window_secs: int
+    challenge_window_secs: int = DEFAULT_CHALLENGE_WINDOW_SECS
     scene_type: int = 0
     width: int = 640
     height: int = 480

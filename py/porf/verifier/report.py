@@ -74,6 +74,9 @@ def summarize(report: dict[str, Any]) -> str:
             lines.append(f"    {f['reason']}")
     lines += ["", f"VERDICT: {report.get('verdict')}"]
     lines += [f"  - {r}" for r in report.get("verdict_reasons", [])]
+    tm = report.get("timing")
+    if tm:
+        lines.append("Timing (s): " + ", ".join(f"{k.removesuffix('_s')} {v}" for k, v in tm.items()))
     t = report.get("transactions", {})
     lines.append("Transactions: " + ", ".join(f"{k} {str(v)[:16]}..." for k, v in t.items() if v) if t else "Transactions: none yet")
     o = report.get("outcome")
@@ -81,7 +84,7 @@ def summarize(report: dict[str, Any]) -> str:
         lines.append(f"Outcome: {o['action']} -> {o['to']}: escrow {o['escrow_moved']} + stake {o['stake_moved']} "
                      f"(destination balance {o['destination_delta']:+d}); request is now {o['final_status']}")
     if report.get("thresholds", {}).get("calibrated") is False:
-        lines.append("Note: annotation thresholds are PLACEHOLDERS (not yet calibrated).")
+        lines.append("Note: the annotation and seg re-render thresholds are UNCALIBRATED.")
     return "\n".join(lines) + "\n"
 
 

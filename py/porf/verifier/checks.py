@@ -22,6 +22,7 @@ from ..scene.generator import generate_scene
 from ..scene.projection import OK, project_box, silhouette_area, visibility_fraction
 from ..seg import SegError, SegObject, analyze, decode_seg
 from .reveal import Reveal
+from .segcompare import compare_seg
 
 MERKLE_PROOF = "merkle_proof"
 SCENE_MATCH = "scene_match"
@@ -29,8 +30,9 @@ HASH_CONSISTENCY = "hash_consistency"
 ANNOTATION_PLAUSIBILITY = "annotation_plausibility"
 IMAGE_SANITY = "image_sanity"
 SEGMENTATION_CONSISTENCY = "segmentation_consistency"
+SEG_RERENDER = "seg_rerender"
 IOU_EPSILON = 1e-9
-CHECK_NAMES = (MERKLE_PROOF, SCENE_MATCH, HASH_CONSISTENCY, ANNOTATION_PLAUSIBILITY, IMAGE_SANITY, SEGMENTATION_CONSISTENCY)
+CHECK_NAMES = (MERKLE_PROOF, SCENE_MATCH, HASH_CONSISTENCY, ANNOTATION_PLAUSIBILITY, IMAGE_SANITY, SEGMENTATION_CONSISTENCY, SEG_RERENDER)
 
 
 @dataclass(frozen=True)
@@ -64,15 +66,29 @@ class ClassThresholds:
 
 
 @dataclass(frozen=True)
+class SegRerenderThresholds:
+    """When the revealed seg.png counts as the same image as the verifier's own re-render (check 7).
+
+    Calibrated values: docs/PROTOCOL.md section 17.5. Pass requires BOTH: the global pixel agreement is at least
+    `min_global_agreement`, and every object that has at least `min_object_pixels` pixels in either image has a mask IoU of
+    at least `min_object_iou` (the pixel floor keeps a flipped one-pixel sliver from being judged as fraud)."""
+
+    min_global_agreement: float
+    min_object_iou: float
+    min_object_pixels: int
+
+
+@dataclass(frozen=True)
 class Thresholds:
-    """PLACEHOLDER VALUES. Chosen to be permissive so an honest node is never rejected; they are NOT calibrated and a
-    cheater with small box errors could pass. Day 4c measures honest runs per class and replaces them
-    (docs/PROTOCOL.md section 7). Per-class entries exist because racks and forklifts are not solid objects."""
+    """Thresholds for checks 4 and 7. `calibrated` says whether the numbers come from a measurement (DEFAULT_THRESHOLDS: 200 honest
+    frames, docs/PROTOCOL.md section 17.5) or are provisional; the check details and the report say so when it is False. Per-class
+    entries exist because racks and forklifts are not solid objects; the calibration found identical behaviour for all four."""
 
     per_class: dict[str, ClassThresholds]
     default: ClassThresholds
     visibility_tolerance: float  # claimed visibility must match the one derived from seg.png within this (quantization is 1e-4)
     calibrated: bool = False     # flipped to True only by the calibration work
+    seg_rerender: SegRerenderThresholds = SegRerenderThresholds(min_global_agreement=0.999, min_object_iou=0.90, min_object_pixels=50)
 
     def for_class(self, cls: str) -> ClassThresholds:
         return self.per_class.get(cls, self.default)
@@ -88,11 +104,14 @@ class Thresholds:
         return self.for_class(cls).min_iou * visible_fraction
 
 
-_PLACEHOLDER = ClassThresholds(pixel_tolerance=2.0, min_iou=0.30)  # PLACEHOLDER
+# Calibrated on 200 honest frames (5 seeds x 4 occlusion levels x 10 frames, production settings): the worst mask-box overshoot was
+# 0.499 px in every class, so 1.0 px is 2x headroom. min_iou 0.30 is a sanity slack: honest IoU / visible fraction is >= 1.0 by construction.
+_CALIBRATED = ClassThresholds(pixel_tolerance=1.0, min_iou=0.30)
 DEFAULT_THRESHOLDS = Thresholds(
-    per_class={"rack": _PLACEHOLDER, "pallet": _PLACEHOLDER, "box": _PLACEHOLDER, "forklift": _PLACEHOLDER},  # PLACEHOLDER
-    default=_PLACEHOLDER,
+    per_class={"rack": _CALIBRATED, "pallet": _CALIBRATED, "box": _CALIBRATED, "forklift": _CALIBRATED},
+    default=_CALIBRATED,
     visibility_tolerance=1e-3,
+    calibrated=True,
 )
 
 
@@ -120,6 +139,9 @@ class VerifyContext:
     submission: Any
     thresholds: Thresholds = DEFAULT_THRESHOLDS
     seen: SeenImages = field(default_factory=SeenImages)
+    # The verifier's own re-render of the id pass for the sampled frames: {frame index: int64 ids}. Produced by the verifier
+    # from the on-chain parameters, never from anything the node sent. None means "no reference": check 7 then fails loudly.
+    reference_seg: dict[int, np.ndarray] | None = None
 
     @property
     def onchain_root(self) -> bytes:
@@ -316,7 +338,7 @@ def check_annotation_plausibility(reveal: Reveal, index: int, ctx: VerifyContext
                         f"{needed:.3f} (min {th.for_class(cls).min_iou} x visible fraction {visible_fraction:.3f})", objects=per_object)
         checked += 1
     detail = f"{checked} visible object boxes lie inside their projected boxes and meet the IoU threshold" if checked else "no visible object boxes to compare"
-    return _ok(name, detail + (" (PLACEHOLDER thresholds)" if not th.calibrated else ""),
+    return _ok(name, detail + ("" if th.calibrated else " (UNCALIBRATED thresholds)"),
                boxes_checked=checked, max_overshoot_px=round(worst_overshoot, 3) if checked else None,
                min_iou_margin=round(worst_iou_margin, 4) if checked else None, objects=per_object)
 
@@ -396,8 +418,46 @@ def check_segmentation_consistency(reveal: Reveal, index: int, ctx: VerifyContex
                f"equals what seg.png gives; {len(scene_ids) - present} objects fully hidden", ids_present=present)
 
 
+# ---------------------------------------------------------------- 7. seg re-render
+
+def check_seg_rerender(reveal: Reveal, index: int, ctx: VerifyContext, facts: FrameFacts) -> CheckResult:
+    """The revealed seg.png must be the image the id pass actually produces for the regenerated scene. This is the only
+    check that sees occlusion: a node that paints full silhouettes without occlusion, and derives consistent boxes from
+    them, satisfies checks 1 to 6."""
+    name = SEG_RERENDER
+    reference = None if ctx.reference_seg is None else ctx.reference_seg.get(index)
+    if reference is None:
+        return _bad(name, "no re-rendered reference is available for this frame")
+    if facts.seg is None:
+        return _bad(name, f"cannot compare: {facts.seg_error}")
+    if facts.seg.shape != reference.shape:
+        return _bad(name, f"the revealed seg.png is {facts.seg.shape[1]}x{facts.seg.shape[0]}, the re-render {reference.shape[1]}x{reference.shape[0]}")
+    th = ctx.thresholds.seg_rerender
+    cmp = compare_seg(facts.seg, reference)
+    classes = {o["id"]: o["class"] for o in facts.expected_scene["objects"]}
+    judged = [o for o in cmp.objects.values() if o.larger >= th.min_object_pixels]
+    worst = min(judged, key=lambda o: o.iou, default=None)
+    metrics: dict[str, Any] = {
+        "global_agreement": round(cmp.global_agreement, 6), "mismatched_pixels": cmp.mismatched_pixels, "objects_compared": len(judged),
+        "worst_object": None if worst is None else {"id": worst.object_id, "class": classes.get(worst.object_id), "iou": round(worst.iou, 6),
+                                                    "revealed_pixels": worst.revealed_pixels, "reference_pixels": worst.reference_pixels},
+    }
+    problems = []
+    if cmp.global_agreement < th.min_global_agreement:
+        problems.append(f"global pixel agreement {cmp.global_agreement:.4f} is below {th.min_global_agreement} ({cmp.mismatched_pixels} pixels differ)")
+    for o in sorted(judged, key=lambda o: o.iou):
+        if o.iou < th.min_object_iou:
+            problems.append(f"object {o.object_id} ({classes.get(o.object_id)}): mask IoU {o.iou:.3f} is below {th.min_object_iou} "
+                            f"(revealed {o.revealed_pixels} px, re-render {o.reference_pixels} px)")
+    if problems:
+        return _bad(name, "the revealed seg.png is not what the id pass renders: " + "; ".join(problems[:4]), **metrics)
+    suffix = "" if ctx.thresholds.calibrated else " (UNCALIBRATED thresholds)"
+    return _ok(name, f"matches the verifier's own re-render: {cmp.global_agreement:.4%} of pixels identical, {len(judged)} objects with a mask IoU "
+               f"of at least {th.min_object_iou}{suffix}", **metrics)
+
+
 ALL_CHECKS = (check_merkle_proof, check_scene_match, check_hash_consistency, check_annotation_plausibility,
-              check_image_sanity, check_segmentation_consistency)
+              check_image_sanity, check_segmentation_consistency, check_seg_rerender)
 
 
 def run_checks(reveal: Reveal, index: int, ctx: VerifyContext) -> list[CheckResult]:
