@@ -2,6 +2,7 @@
 // stdout: one JSON object. Success {"ok":true,...}; failure {"ok":false,"error":{name,code?,message,logs?,kind}} and exit code 1
 // (program/RPC/other errors) or 2 (bad input / unknown command).
 // Env: PORF_RPC_URL (default http://127.0.0.1:8899), PORF_IDL (default <repo>/target/idl/proof_of_render.json).
+import "./compat"; // first: repairs how Anchor builds SendTransactionError
 import { COMMANDS, Ctx } from "./commands";
 import { normalizeError } from "./errors";
 import { CliError } from "./util";

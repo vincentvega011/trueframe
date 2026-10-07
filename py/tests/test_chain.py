@@ -333,3 +333,24 @@ def test_the_demo_challenge_window_defaults_to_60_seconds():
     assert DEFAULT_CHALLENGE_WINDOW_SECS == 60 and p.challenge_window_secs == 60
     assert CreateRequestParams(request_id=1, seed=1, num_frames=1, price_per_frame=1, claim_duration=1, commit_duration=1,
                                challenge_window_secs=6).challenge_window_secs == 6
+
+
+@pytest.mark.skipif(not chain_mod._TSX.exists() or not IDL.exists(), reason="CLI dependencies or IDL missing")
+def test_a_transaction_that_fails_on_chain_keeps_its_program_error_name():
+    """Regression for an intermittent failure. @anchor-lang/core wraps a transaction that passed the preflight simulation and then
+    failed on chain in `new SendTransactionError(message, logs)`, the old positional signature; web3.js 1.99 then produced the
+    message "Unknown action 'undefined'" with no logs, and the error name was lost. The CLI repairs the constructor. No validator."""
+    idl = json.loads(IDL.read_text())
+    closed = next(e for e in idl["errors"] if e["name"] == "ChallengeWindowClosed")
+    log = f"Program log: AnchorError thrown in programs/x.rs:1. Error Code: ChallengeWindowClosed. Error Number: {closed['code']}. Error Message: {closed['msg']}."
+    client = chain_mod.ChainClient()
+
+    out = client.call("selftest-anchor-error", {"message": f"failed: custom program error: {hex(closed['code'])}", "logs": [log]})["mapped"]
+    assert (out["name"], out["code"], out["kind"]) == ("ChallengeWindowClosed", closed["code"], "program")
+    assert out["logs"] == [log]                                            # the logs survive the wrapping
+
+    bare = client.call("selftest-anchor-error", {"message": f"failed: custom program error: {hex(closed['code'])}"})["mapped"]
+    assert (bare["name"], bare["code"]) == ("ChallengeWindowClosed", closed["code"])    # even with no logs, the code in the message is enough
+
+    other = client.call("selftest-anchor-error", {"message": "blockhash not found"})["mapped"]
+    assert other["name"] == "Error" and "blockhash not found" in other["message"] and "Unknown action" not in other["message"]

@@ -230,6 +230,12 @@ impl Env {
         send(&mut self.svm, &[ix], &self.admin, &[&self.admin])
     }
 
+    /// timeout_refund signed by a stranger, refunding the requester's own token account.
+    pub fn timeout_refund(&mut self, req: &Req) -> TxResult {
+        let ix = ix_timeout_refund(&self.admin.pubkey(), &self.mint, req, &self.requester_token);
+        send(&mut self.svm, &[ix], &self.admin, &[&self.admin])
+    }
+
     /// A funded second actor holding `tokens` mock USDC, as (keypair, token account).
     pub fn new_actor(&mut self, tokens: u64) -> (Keypair, Pubkey) {
         let k = Keypair::new();
@@ -450,6 +456,23 @@ pub fn ix_slash_and_refund(caller: &Pubkey, mint: &Pubkey, req: &Req, requester_
             request: req.request,
             mint: *mint,
             submission: submission_pda(&req.request),
+            escrow: req.escrow,
+            stake_vault: req.stake_vault,
+            requester_token: *requester_token,
+            token_program: spl_token::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn ix_timeout_refund(caller: &Pubkey, mint: &Pubkey, req: &Req, requester_token: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        proof_of_render::id(),
+        &proof_of_render::instruction::TimeoutRefund {}.data(),
+        proof_of_render::accounts::TimeoutRefund {
+            caller: *caller,
+            request: req.request,
+            mint: *mint,
             escrow: req.escrow,
             stake_vault: req.stake_vault,
             requester_token: *requester_token,

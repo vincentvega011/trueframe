@@ -42,6 +42,11 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - **SHORTCUT: the node's reveal URL is not on-chain.** `Request`/`Submission` carry no endpoint. The node writes its URL to `.localnet/reveal.json` (`node/client.py`, `start_server`) and the verifier reads it from that file, from `--reveal-url`, or from `PORF_REVEAL_URL` (`verifier/reveal.py`, `discover_reveal_url`). A real deployment would put an endpoint (or a registry entry) on-chain. Consequence: the verifier trusts whoever controls that file, and only one node per machine can be announced.
 - Verifier-supplied blockhash fallback for sampling: **not used**. The SlotHashes sysvar is read on-chain, so the fallback (and its blockhash-grinding caveat) does not apply.
 
+## Demo and devnet
+- **The devnet path of `scripts/setup.sh --cluster devnet` was written but not run** (it needs about 6 devnet SOL in the admin key, which the faucet rate-limits). Everything demonstrated and tested was on a local validator. The demo scripts' `--cluster devnet` option reads `.devnet/env.json` that script writes.
+- The demos run the node and the verifier as processes on the same machine and pass the reveal URL through a file (the SHORTCUT above).
+- `timeout_refund` does not cover a request stuck in `Committed` (the verifier never opens a challenge); see the trusted-verifier entries.
+
 ## Node
 - **The reveal server is plain HTTP with no authentication** and serves any committed job to anyone who can reach it.
 - **One job at a time**, and a crash during rendering discards the half-finished batch (no per-frame resume).

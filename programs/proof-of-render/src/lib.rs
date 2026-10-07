@@ -48,9 +48,7 @@ pub mod proof_of_render {
         instructions::slash_and_refund::handle_slash_and_refund(ctx)
     }
 
-    // ---- not implemented yet (see instructions/stubs.rs)
-
     pub fn timeout_refund(ctx: Context<TimeoutRefund>) -> Result<()> {
-        instructions::stubs::handle_timeout_refund(ctx)
+        instructions::timeout_refund::handle_timeout_refund(ctx)
     }
 }

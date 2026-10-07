@@ -35,7 +35,7 @@ def net():
 class Scenario:
     """One request on the live chain plus a node and a verifier wired to it."""
 
-    def __init__(self, net, tmp_path, name, frames, samples=None, cheat=None):
+    def __init__(self, net, tmp_path, name, frames, samples=None, cheat=None, seed=42, occlusion=3, cheat_fraction=None):
         self.net, self.c, self.e = net, net.client, net.env
         self.frames = frames
         self.escrow = frames * USDC
@@ -44,11 +44,11 @@ class Scenario:
         self.req_tok, self.node_tok = self.e["token_accounts"]["requester"], self.e["token_accounts"]["node"]
         self.before = self.balances()
         rid = next(net.ids)
-        params = CreateRequestParams(request_id=rid, seed=42, num_frames=frames, price_per_frame=USDC, claim_duration=900, commit_duration=900,
-                                     occlusion_level=3)       # challenge_window_secs: the demo default
+        params = CreateRequestParams(request_id=rid, seed=seed, num_frames=frames, price_per_frame=USDC, claim_duration=900, commit_duration=900,
+                                     occlusion_level=occlusion)       # challenge_window_secs: the demo default
         assert params.challenge_window_secs == DEFAULT_CHALLENGE_WINDOW_SECS == 60
         self.address = self.c.create_request(self.e["keys"]["requester"], params)["request"]
-        cfg = dict(keypair=self.e["keys"]["node"], out_dir=self.tmp / "node", only_request=self.address, port=0, announce_file=None, cheat=cheat)
+        cfg = dict(keypair=self.e["keys"]["node"], out_dir=self.tmp / "node", only_request=self.address, port=0, announce_file=None, cheat=cheat, cheat_fraction=cheat_fraction)
         if samples is not None:
             cfg["samples"] = samples                          # otherwise the production default (64)
         self.node = Node(NodeConfig(**cfg), self.c)

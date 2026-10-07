@@ -8,6 +8,8 @@ import {
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SYSVAR_SLOT_HASHES_PUBKEY, SystemProgram } from "@solana/web3.js";
+import * as web3 from "@solana/web3.js";
+import { normalizeError } from "./errors";
 import {
   CliError, Pdas, coerceStruct, hexToBytes32, idlPath, loadIdl, loadKeypair, need, pubkey, rpcUrl, toJson,
 } from "./util";
@@ -206,6 +208,27 @@ async function slashAndRefund(ctx: Ctx, args: Args): Promise<Result> {
   return { signature: sig, request: request.toBase58(), requester_token: requesterToken.toBase58() };
 }
 
+async function timeoutRefund(ctx: Ctx, args: Args): Promise<Result> {
+  const caller = ctx.signer(args);
+  const request = ctx.request(args);
+  const acct = await fetchRequest(ctx, request);
+  const requesterToken = args.requester_token
+    ? pubkey(args.requester_token, "requester_token")
+    : getAssociatedTokenAddressSync(acct.mint, acct.requester);
+  const sig = await send(
+    ctx.program(caller).methods.timeoutRefund().accountsPartial({
+      caller: caller.publicKey,
+      request,
+      mint: args.mint ? pubkey(args.mint, "mint") : acct.mint,
+      escrow: ctx.pdas.escrow(request),
+      stakeVault: ctx.pdas.stake(request),
+      requesterToken,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    }),
+  );
+  return { signature: sig, request: request.toBase58(), requester_token: requesterToken.toBase58() };
+}
+
 // ---------------------------------------------------------------- fetches
 
 async function getConfig(ctx: Ctx): Promise<Result> {
@@ -317,6 +340,13 @@ async function info(ctx: Ctx): Promise<Result> {
   };
 }
 
+// Dev utility, no chain needed: build the error exactly as @anchor-lang/core does for a transaction that fails on chain, and map it.
+async function selftestAnchorError(ctx: Ctx, args: Args): Promise<Result> {
+  const logs = (args.logs as string[] | undefined) ?? [];
+  const err = new (web3 as any).SendTransactionError(String(need(args, "message")), logs.length ? logs : undefined);
+  return { mapped: await normalizeError(err, ctx.idl) };
+}
+
 export const COMMANDS: Record<string, (ctx: Ctx, args: Args) => Promise<Result>> = {
   "init-config": initConfig,
   "create-request": createRequest,
@@ -326,6 +356,7 @@ export const COMMANDS: Record<string, (ctx: Ctx, args: Args) => Promise<Result>>
   "submit-verdict": submitVerdict,
   "finalize-payout": finalizePayout,
   "slash-and-refund": slashAndRefund,
+  "timeout-refund": timeoutRefund,
   "get-config": (ctx) => getConfig(ctx),
   "get-request": getRequest,
   "get-submission": getSubmission,
@@ -337,4 +368,5 @@ export const COMMANDS: Record<string, (ctx: Ctx, args: Args) => Promise<Result>>
   airdrop,
   pubkey: pubkeyCmd,
   info: (ctx) => info(ctx),
+  "selftest-anchor-error": selftestAnchorError,
 };

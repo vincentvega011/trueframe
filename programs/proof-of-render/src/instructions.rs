@@ -5,9 +5,9 @@ pub mod open_challenge;
 mod payout;
 pub mod slash_and_refund;
 pub mod stake_and_claim;
-pub mod stubs;
 pub mod submit_commitment;
 pub mod submit_verdict;
+pub mod timeout_refund;
 
 pub use create_request::*;
 pub use finalize_payout::*;
@@ -15,6 +15,6 @@ pub use init_config::*;
 pub use open_challenge::*;
 pub use slash_and_refund::*;
 pub use stake_and_claim::*;
-pub use stubs::*;
 pub use submit_commitment::*;
 pub use submit_verdict::*;
+pub use timeout_refund::*;

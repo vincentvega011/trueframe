@@ -299,6 +299,14 @@ class ChainClient:
         args.update({k: v for k, v in (("requester_token", requester_token), ("mint", mint)) if v})
         return self.call("slash-and-refund", args)
 
+    def timeout_refund(self, signer: str, request: str | None = None, requester: str | None = None, request_id: int | None = None,
+                       requester_token: str | None = None, mint: str | None = None) -> dict[str, Any]:
+        """After the claim deadline (Open) or the commit deadline (Claimed): refund the escrow, and the stake if one was
+        deposited, to the requester. Anyone may sign. Fails with DeadlineNotReached until `now > deadline`."""
+        args = {"signer": signer, **self._which(request, requester, request_id)}
+        args.update({k: v for k, v in (("requester_token", requester_token), ("mint", mint)) if v})
+        return self.call("timeout-refund", args)
+
     # -- dev utilities (localnet setup and tests)
     def create_mint(self, signer: str, mint_keypair: str | None = None, decimals: int = 6) -> str:
         args: dict[str, Any] = {"signer": signer, "decimals": decimals}

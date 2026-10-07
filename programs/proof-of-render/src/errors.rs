@@ -69,8 +69,4 @@ pub enum PorError {
     VerdictNotFail,
     #[msg("payout is not allowed after a Fail verdict")]
     VerdictIsFail,
-
-    // ---- placeholder ----
-    #[msg("instruction not implemented yet")]
-    NotImplemented,
 }
