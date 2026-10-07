@@ -21,9 +21,10 @@ import numpy as np
 from PIL import Image
 
 from ..canon import canonical_bytes, quantize
+from ..seg import analyze as analyze_seg
 from ..scene.camera import DEFAULT_HEIGHT, DEFAULT_WIDTH, Camera, blender_camera_spec
 from ..scene.generator import CLASS_IDS, generate_scene
-from ..scene.projection import silhouette_area
+from ..scene.projection import silhouette_area, visibility_fraction
 
 BLENDER_JOB = Path(__file__).with_name("blender_job.py")
 MAC_BLENDER = "/Applications/Blender.app/Contents/MacOS/Blender"
@@ -58,17 +59,13 @@ def check_seg_integrity(seg: np.ndarray, scene: dict) -> list[int]:
 
 def build_annotations(scene: dict, seg: np.ndarray) -> dict:
     cam = Camera.from_dict(scene["camera"])
+    stats = analyze_seg(seg)
     objects = []
     for obj in scene["objects"]:
-        mask = seg == obj["id"]
-        n = int(mask.sum())
-        if n:
-            ys, xs = np.nonzero(mask)
-            bbox = [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1]  # half-open pixel bounds
-        else:
-            bbox = None
-        area = silhouette_area(cam, obj)
-        vis = 0.0 if n == 0 else (1.0 if area <= 0.0 else min(1.0, n / area))
+        found = stats.get(obj["id"])
+        n = found.pixels if found else 0
+        bbox = list(found.bbox) if found else None
+        vis = visibility_fraction(n, silhouette_area(cam, obj))
         objects.append(
             {
                 "instance_id": obj["id"],

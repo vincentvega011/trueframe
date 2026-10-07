@@ -6,7 +6,8 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - **Single trusted verifier key.** The verifier can collude with a node, or wrongly slash or pass. Production would use a randomized committee plus requester challenges.
 - **Optimistic payout.** If the verifier posts no verdict before the challenge window ends, `finalize_payout` pays the node. Liveness of the verifier is assumed.
 - **No timeout after `Committed`.** If the verifier never opens a challenge, the request is stuck. Covered only by the trusted-verifier assumption.
-- **Network failure can slash an honest node.** A sampled frame the node cannot serve (3 tries × 10 s) is a failed frame. The report labels it "reveal unavailable", but the verdict is still `Fail`.
+- **Network failure can slash an honest node.** A sampled frame the node cannot serve (3 tries × 10 s) is a failed frame. The report labels it "reveal unavailable", but the verdict is still `Fail`. The verifier stops fetching at the first unavailable reveal (the rest are recorded as `not_checked`), so one outage is judged once.
+- **The verifier must finish inside the challenge window.** Verdicts are rejected once `challenge_window_end` passes, and a request without a verdict is then paid optimistically. A slow or stuck verifier therefore pays a cheating node. The demo windows (6 to 30 s) are long enough for a handful of local frames; real deployments need a window longer than the worst-case verification time.
 - **Test USDC mint.** Mock mint, configurable via env. The real USDC mint is never used.
 - **`init_config` can be front-run.** `Config` is a global singleton PDA created by whoever calls `init_config` first, and that caller becomes admin and chooses the verifier. `scripts/setup.sh` calls it immediately after deploying, so the window is a few seconds on a program nobody has been told about. A production version would require the program's upgrade authority as signer.
 - **Classic SPL Token only.** The program supports the original SPL Token program; Token-2022 mints (transfer fees, interest-bearing extensions) are not supported and would break the exact-amount accounting.
@@ -22,7 +23,10 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - **Sampling is probabilistic.** For N=20, k=7, a single bad frame is caught only ~28% of the time (table in PROTOCOL.md §5). Frames 0 and N-1 are always sampled.
 - **Render quality is not verified.** Checks cover scene identity, annotation plausibility, image sanity and hash consistency, not that the render looks right.
 - **`depth.png` is neither hashed nor checked.**
-- Annotation plausibility uses tolerances calibrated on a small number of honest runs *(values TBD, PROTOCOL.md §7)*.
+- **Annotation thresholds are PLACEHOLDERS** (2.0 px, slack 0.30, all classes) until Day 4c calibrates them on honest runs per class (PROTOCOL.md §17.2, §17.5). They are permissive: an honest node always passes, but a cheater with box errors under 2 px is not caught by the containment test (the seg/annotation equality check still catches any box that disagrees with `seg.png`).
+- **The IoU term is weak by construction:** annotations are tied to `seg.png` (check 6) and boxes to the projected box (check 4), so a node with a self-consistent `seg.png` cannot fail the IoU requirement (PROTOCOL.md §17.2).
+- **`rgb.png` content is checked only for validity, size, not-flat and uniqueness.** Nothing relates the picture to `seg.png` or the scene, so a node that commits a geometrically consistent `seg.png` and annotations next to an unrelated (but non-flat, non-duplicate) `rgb.png` passes. This is the "render quality is not verified" limit, stated precisely.
+- **Duplicate-image detection is per verifier run:** the set of seen image hashes lives in memory, so images reused across a verifier restart are not recognised.
 - Image hashes are of the node's own output. Cross-machine render determinism is not claimed or required; `rgb.png` is not even byte-reproducible on one machine (denoising), while `seg.png`/`depth.png` are.
 - Per-object `visibility` is a lower bound (mask pixels over the box silhouette), loose for racks and forklifts.
 
@@ -33,7 +37,7 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - Sponsor integrations: none built. *(Update if any are added after the Day 5 gate.)*
 
 ## Shortcuts in code
-- **SHORTCUT: the node's reveal URL is not on-chain.** `Request`/`Submission` carry no endpoint. The node writes its URL to `.localnet/reveal.json` (`node/client.py`, `start_server`) and the verifier is pointed at it through that file or `PORF_REVEAL_URL`. A real deployment would put an endpoint (or a registry entry) on-chain. Consequence: the verifier trusts whoever controls that file, and only one node per machine can be announced.
+- **SHORTCUT: the node's reveal URL is not on-chain.** `Request`/`Submission` carry no endpoint. The node writes its URL to `.localnet/reveal.json` (`node/client.py`, `start_server`) and the verifier reads it from that file, from `--reveal-url`, or from `PORF_REVEAL_URL` (`verifier/reveal.py`, `discover_reveal_url`). A real deployment would put an endpoint (or a registry entry) on-chain. Consequence: the verifier trusts whoever controls that file, and only one node per machine can be announced.
 - Verifier-supplied blockhash fallback for sampling: **not used**. The SlotHashes sysvar is read on-chain, so the fallback (and its blockhash-grinding caveat) does not apply.
 
 ## Node

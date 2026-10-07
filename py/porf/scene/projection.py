@@ -161,3 +161,16 @@ def silhouette_area(camera: Camera, obj: dict) -> float:
         x2, y2 = poly[(i + 1) % len(poly)]
         area += x1 * y2 - x2 * y1
     return abs(area) / 2.0
+
+
+def visibility_fraction(mask_pixels: int, silhouette: float) -> float:
+    """Fraction of the object's unoccluded silhouette that is visible (docs/PROTOCOL.md section 14.3), in [0, 1].
+
+    0 if no mask pixels; 1 if the silhouette is empty but pixels exist; otherwise min(1, pixels / area). The renderer
+    writes this into annotations.json and the verifier recomputes it from seg.png, so both must call this function.
+    """
+    if mask_pixels <= 0:
+        return 0.0
+    if silhouette <= 0.0:
+        return 1.0
+    return min(1.0, mask_pixels / silhouette)
