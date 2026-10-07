@@ -1,6 +1,7 @@
 pub mod constants;
 pub mod errors;
 pub mod instructions;
+pub mod slot_hashes;
 pub mod state;
 
 use anchor_lang::prelude::*;
@@ -31,23 +32,23 @@ pub mod proof_of_render {
         instructions::submit_commitment::handle_submit_commitment(ctx, merkle_root, frame_count)
     }
 
-    // ---- not implemented yet (see instructions/stubs.rs) ----
-
     pub fn open_challenge(ctx: Context<OpenChallenge>) -> Result<()> {
-        instructions::stubs::handle_open_challenge(ctx)
+        instructions::open_challenge::handle_open_challenge(ctx)
     }
 
     pub fn submit_verdict(ctx: Context<SubmitVerdict>, verdict: Verdict) -> Result<()> {
-        instructions::stubs::handle_submit_verdict(ctx, verdict)
+        instructions::submit_verdict::handle_submit_verdict(ctx, verdict)
     }
 
     pub fn finalize_payout(ctx: Context<FinalizePayout>) -> Result<()> {
-        instructions::stubs::handle_finalize_payout(ctx)
+        instructions::finalize_payout::handle_finalize_payout(ctx)
     }
 
     pub fn slash_and_refund(ctx: Context<SlashAndRefund>) -> Result<()> {
-        instructions::stubs::handle_slash_and_refund(ctx)
+        instructions::slash_and_refund::handle_slash_and_refund(ctx)
     }
+
+    // ---- not implemented yet (see instructions/stubs.rs)
 
     pub fn timeout_refund(ctx: Context<TimeoutRefund>) -> Result<()> {
         instructions::stubs::handle_timeout_refund(ctx)

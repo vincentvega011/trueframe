@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
@@ -85,6 +86,7 @@ class Submission:
     frame_count: int
     commit_slot: int
     sample_seed: str  # hex
+    sample_slot: int  # slot of the SlotHashes entry that fed sample_seed; 0 until open_challenge
     sample_count: int
     verdict: str  # "Pending" | "Pass" | "Fail"
     bump: int
@@ -251,6 +253,46 @@ class ChainClient:
         root = merkle_root.hex() if isinstance(merkle_root, (bytes, bytearray)) else merkle_root
         return self.call("submit-commitment", {"signer": signer, "merkle_root": root, "frame_count": frame_count,
                                                 **self._which(request, requester, request_id)})
+
+    def open_challenge(self, signer: str, request: str | None = None, requester: str | None = None, request_id: int | None = None,
+                       max_attempts: int = 1, delay: float = 0.4) -> dict[str, Any]:
+        """Open the challenge (verifier key). The program rejects it with SlotHashNotNewer until the SlotHashes sysvar holds
+        a slot newer than the commit, i.e. a slot or two after the commit. With max_attempts > 1 this retries ONLY that error,
+        `delay` seconds apart, and raises a clear ChainError if the attempts run out. Default: one attempt, no retry."""
+        args = {"signer": signer, **self._which(request, requester, request_id)}
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return self.call("open-challenge", args)
+            except ChainError as e:
+                if e.name != "SlotHashNotNewer":
+                    raise
+                if attempt == max_attempts:
+                    if max_attempts == 1:
+                        raise
+                    raise ChainError("SlotHashNotNewer", f"open_challenge was still rejected with SlotHashNotNewer after {max_attempts} attempts "
+                                     f"{delay}s apart; the chain has not produced a slot newer than the commit (is the validator running?)",
+                                     e.code, e.logs, e.kind) from e
+                time.sleep(delay)
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    def submit_verdict(self, signer: str, verdict: str, request: str | None = None, requester: str | None = None,
+                       request_id: int | None = None) -> dict[str, Any]:
+        """verdict is "Pass" or "Fail" (verifier key). "Pending" is passed through so the program can reject it."""
+        return self.call("submit-verdict", {"signer": signer, "verdict": verdict, **self._which(request, requester, request_id)})
+
+    def finalize_payout(self, signer: str, request: str | None = None, requester: str | None = None, request_id: int | None = None,
+                        node_token: str | None = None, mint: str | None = None) -> dict[str, Any]:
+        """Pay escrow + stake to the node. Anyone may sign. node_token defaults to the node's associated token account."""
+        args = {"signer": signer, **self._which(request, requester, request_id)}
+        args.update({k: v for k, v in (("node_token", node_token), ("mint", mint)) if v})
+        return self.call("finalize-payout", args)
+
+    def slash_and_refund(self, signer: str, request: str | None = None, requester: str | None = None, request_id: int | None = None,
+                         requester_token: str | None = None, mint: str | None = None) -> dict[str, Any]:
+        """Refund escrow + the node's stake to the requester after a Fail verdict. Anyone may sign."""
+        args = {"signer": signer, **self._which(request, requester, request_id)}
+        args.update({k: v for k, v in (("requester_token", requester_token), ("mint", mint)) if v})
+        return self.call("slash-and-refund", args)
 
     # -- dev utilities (localnet setup and tests)
     def create_mint(self, signer: str, mint_keypair: str | None = None, decimals: int = 6) -> str:

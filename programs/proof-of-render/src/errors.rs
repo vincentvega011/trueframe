@@ -63,6 +63,8 @@ pub enum PorError {
     SlotHashNotNewer,
     #[msg("a verdict has already been recorded")]
     VerdictAlreadySet,
+    #[msg("Pending is not a verdict; submit Pass or Fail")]
+    InvalidVerdict,
     #[msg("slash requires a Fail verdict")]
     VerdictNotFail,
     #[msg("payout is not allowed after a Fail verdict")]

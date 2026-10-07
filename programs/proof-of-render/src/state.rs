@@ -40,7 +40,7 @@ pub struct Request {
     pub bump: u8,
 }
 
-/// PDA ["submission", request]. Created by `submit_commitment` (Day 3).
+/// PDA ["submission", request]. Created by `submit_commitment`; the sample fields are filled by `open_challenge`.
 #[account]
 #[derive(InitSpace)]
 pub struct Submission {
@@ -50,6 +50,8 @@ pub struct Submission {
     pub frame_count: u32,
     pub commit_slot: u64,
     pub sample_seed: [u8; 32],
+    /// Slot of the SlotHashes entry that fed `sample_seed` (0 until `open_challenge`), so anyone can audit the seed.
+    pub sample_slot: u64,
     pub sample_count: u8,
     pub verdict: Verdict,
     pub bump: u8,
@@ -72,4 +74,28 @@ pub enum Verdict {
     Pending,
     Pass,
     Fail,
+}
+
+/// How many frames the verifier samples for a request of `frame_count` frames (docs/PROTOCOL.md section 5):
+/// 7 when there are at least 7 frames (0, N-1 and 5 drawn from the middle), otherwise min(5, N).
+pub fn sample_count_for(frame_count: u32) -> u8 {
+    use crate::constants::{SAMPLE_DRAWN, SAMPLE_EDGE_THRESHOLD};
+    if frame_count >= SAMPLE_EDGE_THRESHOLD {
+        SAMPLE_DRAWN + 2
+    } else {
+        u8::try_from(frame_count.min(u32::from(SAMPLE_DRAWN))).unwrap_or(SAMPLE_DRAWN)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sample_count_for;
+
+    #[test]
+    fn sample_count_table() {
+        let table = [(0u32, 0u8), (1, 1), (2, 2), (5, 5), (6, 5), (7, 7), (8, 7), (20, 7), (1024, 7), (u32::MAX, 7)];
+        for (frames, expected) in table {
+            assert_eq!(sample_count_for(frames), expected, "frame_count {frames}");
+        }
+    }
 }

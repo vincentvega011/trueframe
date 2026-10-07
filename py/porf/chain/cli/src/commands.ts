@@ -7,7 +7,7 @@ import {
   mintTo,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SYSVAR_SLOT_HASHES_PUBKEY, SystemProgram } from "@solana/web3.js";
 import {
   CliError, Pdas, coerceStruct, hexToBytes32, idlPath, loadIdl, loadKeypair, need, pubkey, rpcUrl, toJson,
 } from "./util";
@@ -117,6 +117,93 @@ async function submitCommitment(ctx: Ctx, args: Args): Promise<Result> {
     }),
   );
   return { signature: sig, request: request.toBase58(), submission: ctx.pdas.submission(request).toBase58() };
+}
+
+/** Request account as stored on chain (needed to find the mint and the payee), or AccountNotFound. */
+async function fetchRequest(ctx: Ctx, request: PublicKey): Promise<any> {
+  const acct = await (ctx.program().account as any).request.fetchNullable(request);
+  if (!acct) throw new CliError("AccountNotFound", `request account ${request.toBase58()} does not exist`);
+  return acct;
+}
+
+/** "Pass" / "pass" -> {pass: {}}, validated against the IDL's own Verdict enum rather than a hardcoded list. */
+function verdictArg(ctx: Ctx, raw: unknown): Record<string, object> {
+  const def = (ctx.idl.types ?? []).find((t) => t.name === "Verdict");
+  const variants = ((def?.type as unknown as { variants?: { name: string }[] })?.variants ?? []).map((v) => v.name);
+  const match = variants.find((v) => v.toLowerCase() === String(raw).toLowerCase());
+  if (!match) throw new CliError("InvalidInput", `verdict must be one of ${variants.join(", ")}, got ${JSON.stringify(raw)}`);
+  return { [match.charAt(0).toLowerCase() + match.slice(1)]: {} };
+}
+
+async function openChallenge(ctx: Ctx, args: Args): Promise<Result> {
+  const verifier = ctx.signer(args);
+  const request = ctx.request(args);
+  const sig = await send(
+    ctx.program(verifier).methods.openChallenge().accountsPartial({
+      verifier: verifier.publicKey,
+      config: ctx.pdas.config(),
+      request,
+      submission: ctx.pdas.submission(request),
+      slotHashes: SYSVAR_SLOT_HASHES_PUBKEY,
+    }),
+  );
+  return { signature: sig, request: request.toBase58() };
+}
+
+async function submitVerdict(ctx: Ctx, args: Args): Promise<Result> {
+  const verifier = ctx.signer(args);
+  const request = ctx.request(args);
+  const sig = await send(
+    ctx.program(verifier).methods.submitVerdict(verdictArg(ctx, need(args, "verdict"))).accountsPartial({
+      verifier: verifier.publicKey,
+      config: ctx.pdas.config(),
+      request,
+      submission: ctx.pdas.submission(request),
+    }),
+  );
+  return { signature: sig, request: request.toBase58() };
+}
+
+async function finalizePayout(ctx: Ctx, args: Args): Promise<Result> {
+  const caller = ctx.signer(args);
+  const request = ctx.request(args);
+  const acct = await fetchRequest(ctx, request);
+  const nodeToken = args.node_token ? pubkey(args.node_token, "node_token") : getAssociatedTokenAddressSync(acct.mint, acct.node);
+  const sig = await send(
+    ctx.program(caller).methods.finalizePayout().accountsPartial({
+      caller: caller.publicKey,
+      request,
+      mint: args.mint ? pubkey(args.mint, "mint") : acct.mint,
+      submission: ctx.pdas.submission(request),
+      escrow: ctx.pdas.escrow(request),
+      stakeVault: ctx.pdas.stake(request),
+      nodeToken,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    }),
+  );
+  return { signature: sig, request: request.toBase58(), node_token: nodeToken.toBase58() };
+}
+
+async function slashAndRefund(ctx: Ctx, args: Args): Promise<Result> {
+  const caller = ctx.signer(args);
+  const request = ctx.request(args);
+  const acct = await fetchRequest(ctx, request);
+  const requesterToken = args.requester_token
+    ? pubkey(args.requester_token, "requester_token")
+    : getAssociatedTokenAddressSync(acct.mint, acct.requester);
+  const sig = await send(
+    ctx.program(caller).methods.slashAndRefund().accountsPartial({
+      caller: caller.publicKey,
+      request,
+      mint: args.mint ? pubkey(args.mint, "mint") : acct.mint,
+      submission: ctx.pdas.submission(request),
+      escrow: ctx.pdas.escrow(request),
+      stakeVault: ctx.pdas.stake(request),
+      requesterToken,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    }),
+  );
+  return { signature: sig, request: request.toBase58(), requester_token: requesterToken.toBase58() };
 }
 
 // ---------------------------------------------------------------- fetches
@@ -235,6 +322,10 @@ export const COMMANDS: Record<string, (ctx: Ctx, args: Args) => Promise<Result>>
   "create-request": createRequest,
   "stake-and-claim": stakeAndClaim,
   "submit-commitment": submitCommitment,
+  "open-challenge": openChallenge,
+  "submit-verdict": submitVerdict,
+  "finalize-payout": finalizePayout,
+  "slash-and-refund": slashAndRefund,
   "get-config": (ctx) => getConfig(ctx),
   "get-request": getRequest,
   "get-submission": getSubmission,

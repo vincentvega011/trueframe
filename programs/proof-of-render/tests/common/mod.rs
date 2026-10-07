@@ -5,7 +5,8 @@
 use {
     anchor_lang::{
         prelude::Pubkey,
-        solana_program::{clock::Clock, instruction::Instruction, program_pack::Pack, system_instruction, system_program},
+        solana_program::{clock::Clock, instruction::Instruction, program_pack::Pack, system_instruction, system_program, sysvar::SysvarId},
+        prelude::SlotHashes,
         AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas,
     },
     anchor_spl::token::spl_token,
@@ -15,7 +16,7 @@ use {
     },
     proof_of_render::{
         errors::PorError,
-        state::{Config, Request, RequestStatus, Submission},
+        state::{Config, Request, RequestStatus, Submission, Verdict},
         CreateRequestParams,
     },
     solana_keypair::Keypair,
@@ -31,6 +32,21 @@ pub const DECIMALS: u8 = 6;
 pub const USDC: u64 = 1_000_000;
 pub const START_TOKENS: u64 = 1_000 * USDC; // requester and node each start with 1000 mock USDC
 pub const SOL: u64 = 1_000_000_000;
+
+/// A fixed commitment root (the worked-example leaf from docs/PROTOCOL.md section 4.2) and a fixed slot hash.
+pub const ROOT: [u8; 32] = [
+    0x5b, 0x4f, 0xaa, 0x09, 0xef, 0x2b, 0xcb, 0x0f, 0x4a, 0x44, 0x48, 0x89, 0xda, 0x86, 0x95, 0x2d, 0xb0, 0x53, 0x4a, 0x0f, 0x1e,
+    0x6c, 0xf2, 0x09, 0xb8, 0x1e, 0x41, 0x1e, 0x5d, 0xe5, 0x3f, 0xd4,
+];
+pub const SLOT_HASH: [u8; 32] = [0xAB; 32];
+/// sha256(ROOT || SLOT_HASH), computed independently with Python's hashlib.
+pub const EXPECTED_SEED: &str = "a77fb2584ba6b48a1f11e25e0b05b6cade9c11f2f7adfade76e5766edd32f4d0";
+
+/// Timeline used by `Env::challenged_request`: claimed at BASE+10, committed at slot COMMIT_SLOT,
+/// challenge opened at BASE+20, so the 30 s window ends at WINDOW_END.
+pub const COMMIT_SLOT: u64 = 100;
+pub const OPEN_TIME: i64 = BASE_TIME + 20;
+pub const WINDOW_END: i64 = OPEN_TIME + 30;
 
 // ---------------------------------------------------------------- PDAs
 
@@ -144,6 +160,74 @@ impl Env {
         let mut clock = self.svm.get_sysvar::<Clock>();
         clock.slot = slot;
         self.svm.set_sysvar(&clock);
+    }
+
+    /// Replace the SlotHashes sysvar with exactly these (slot, hash) entries, newest first as given.
+    pub fn set_slot_hashes(&mut self, entries: &[(u64, [u8; 32])]) {
+        let mut data = (entries.len() as u64).to_le_bytes().to_vec();
+        for (slot, hash) in entries {
+            data.extend_from_slice(&slot.to_le_bytes());
+            data.extend_from_slice(hash);
+        }
+        let mut account = self.svm.get_account(&SlotHashes::id()).expect("SlotHashes sysvar account exists");
+        account.data = data;
+        self.svm.set_account(SlotHashes::id(), account).unwrap();
+    }
+
+    /// Claimed at BASE+10 and committed with ROOT at slot COMMIT_SLOT. `params` decides the frame count.
+    pub fn committed_request_with(&mut self, params: &CreateRequestParams) -> Req {
+        self.create_request(params).unwrap();
+        let req = Req::new(&self.requester.pubkey(), params.request_id);
+        self.warp_to(BASE_TIME + 10);
+        self.claim(&req).unwrap();
+        self.warp_to_slot(COMMIT_SLOT);
+        self.commit(&req, ROOT, params.num_frames).unwrap();
+        req
+    }
+
+    pub fn committed_request(&mut self, request_id: u64) -> Req {
+        self.committed_request_with(&default_params(request_id))
+    }
+
+    /// Make the newest SlotHashes entry (COMMIT_SLOT + 49, SLOT_HASH) newer than the commit, at OPEN_TIME.
+    pub fn prepare_open_challenge(&mut self) {
+        self.warp_to(OPEN_TIME);
+        self.warp_to_slot(COMMIT_SLOT + 50);
+        self.set_slot_hashes(&[(COMMIT_SLOT + 49, SLOT_HASH), (COMMIT_SLOT + 48, [0x11; 32]), (3, [0x22; 32])]);
+    }
+
+    pub fn open_challenge(&mut self, req: &Req) -> TxResult {
+        let ix = ix_open_challenge(&self.verifier.pubkey(), req);
+        send(&mut self.svm, &[ix], &self.verifier, &[&self.verifier])
+    }
+
+    /// Committed, then challenged by the verifier at OPEN_TIME. The window ends at WINDOW_END.
+    pub fn challenged_request_with(&mut self, params: &CreateRequestParams) -> Req {
+        let req = self.committed_request_with(params);
+        self.prepare_open_challenge();
+        self.open_challenge(&req).unwrap();
+        req
+    }
+
+    pub fn challenged_request(&mut self, request_id: u64) -> Req {
+        self.challenged_request_with(&default_params(request_id))
+    }
+
+    pub fn verdict(&mut self, req: &Req, verdict: Verdict) -> TxResult {
+        let ix = ix_submit_verdict(&self.verifier.pubkey(), req, verdict);
+        send(&mut self.svm, &[ix], &self.verifier, &[&self.verifier])
+    }
+
+    /// finalize_payout signed by a stranger (anyone may call it), paying the node's own token account.
+    pub fn payout(&mut self, req: &Req) -> TxResult {
+        let ix = ix_finalize_payout(&self.admin.pubkey(), &self.mint, req, &self.node_token);
+        send(&mut self.svm, &[ix], &self.admin, &[&self.admin])
+    }
+
+    /// slash_and_refund signed by a stranger, refunding the requester's own token account.
+    pub fn slash(&mut self, req: &Req) -> TxResult {
+        let ix = ix_slash_and_refund(&self.admin.pubkey(), &self.mint, req, &self.requester_token);
+        send(&mut self.svm, &[ix], &self.admin, &[&self.admin])
     }
 
     /// A funded second actor holding `tokens` mock USDC, as (keypair, token account).
@@ -310,6 +394,71 @@ pub fn ix_submit_commitment(node: &Pubkey, req: &Req, merkle_root: [u8; 32], fra
     )
 }
 
+pub fn ix_open_challenge(verifier: &Pubkey, req: &Req) -> Instruction {
+    Instruction::new_with_bytes(
+        proof_of_render::id(),
+        &proof_of_render::instruction::OpenChallenge {}.data(),
+        proof_of_render::accounts::OpenChallenge {
+            verifier: *verifier,
+            config: config_pda(),
+            request: req.request,
+            submission: submission_pda(&req.request),
+            slot_hashes: SlotHashes::id(),
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn ix_submit_verdict(verifier: &Pubkey, req: &Req, verdict: Verdict) -> Instruction {
+    Instruction::new_with_bytes(
+        proof_of_render::id(),
+        &proof_of_render::instruction::SubmitVerdict { verdict }.data(),
+        proof_of_render::accounts::SubmitVerdict {
+            verifier: *verifier,
+            config: config_pda(),
+            request: req.request,
+            submission: submission_pda(&req.request),
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn ix_finalize_payout(caller: &Pubkey, mint: &Pubkey, req: &Req, node_token: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        proof_of_render::id(),
+        &proof_of_render::instruction::FinalizePayout {}.data(),
+        proof_of_render::accounts::FinalizePayout {
+            caller: *caller,
+            request: req.request,
+            mint: *mint,
+            submission: submission_pda(&req.request),
+            escrow: req.escrow,
+            stake_vault: req.stake_vault,
+            node_token: *node_token,
+            token_program: spl_token::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
+pub fn ix_slash_and_refund(caller: &Pubkey, mint: &Pubkey, req: &Req, requester_token: &Pubkey) -> Instruction {
+    Instruction::new_with_bytes(
+        proof_of_render::id(),
+        &proof_of_render::instruction::SlashAndRefund {}.data(),
+        proof_of_render::accounts::SlashAndRefund {
+            caller: *caller,
+            request: req.request,
+            mint: *mint,
+            submission: submission_pda(&req.request),
+            escrow: req.escrow,
+            stake_vault: req.stake_vault,
+            requester_token: *requester_token,
+            token_program: spl_token::ID,
+        }
+        .to_account_metas(None),
+    )
+}
+
 // ---------------------------------------------------------------- token helpers
 
 pub fn create_mint(svm: &mut LiteSVM, authority: &Keypair) -> Pubkey {
@@ -355,6 +504,10 @@ pub fn read_anchor<T: AccountDeserialize>(svm: &LiteSVM, address: &Pubkey) -> T 
     let account = svm.get_account(address).unwrap_or_else(|| panic!("account {address} does not exist"));
     let mut data: &[u8] = &account.data;
     T::try_deserialize(&mut data).unwrap()
+}
+
+pub fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 pub fn account_exists(svm: &LiteSVM, address: &Pubkey) -> bool {

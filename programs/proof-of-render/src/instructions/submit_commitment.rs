@@ -46,6 +46,7 @@ pub fn handle_submit_commitment(ctx: Context<SubmitCommitment>, merkle_root: [u8
     submission.frame_count = frame_count;
     submission.commit_slot = clock.slot;
     submission.sample_seed = [0u8; 32];
+    submission.sample_slot = 0;
     submission.sample_count = 0;
     submission.verdict = Verdict::Pending;
     submission.bump = ctx.bumps.submission;

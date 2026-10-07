@@ -43,6 +43,7 @@ fn commit_happy_path_exact_submission_fields() {
     assert_eq!(s.frame_count, FRAMES);
     assert_eq!(s.commit_slot, 777); // recorded from the Clock at commit time
     assert_eq!(s.sample_seed, [0u8; 32]);
+    assert_eq!(s.sample_slot, 0);
     assert_eq!(s.sample_count, 0);
     assert_eq!(s.verdict, Verdict::Pending);
     assert_eq!(s.bump, anchor_lang::prelude::Pubkey::find_program_address(&[proof_of_render::constants::SUBMISSION_SEED, req.request.as_ref()], &proof_of_render::id()).1);

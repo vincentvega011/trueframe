@@ -24,3 +24,9 @@ pub const MAX_OCCLUSION_LEVEL: u8 = 3;
 pub const MAX_FRAMES: u32 = 1024;
 #[constant]
 pub const MAX_RESOLUTION: u16 = 4096;
+
+// Sampling (docs/PROTOCOL.md section 5): with at least 7 frames, frames 0 and N-1 plus 5 drawn from 1..N-2.
+#[constant]
+pub const SAMPLE_EDGE_THRESHOLD: u32 = 7;
+#[constant]
+pub const SAMPLE_DRAWN: u8 = 5;

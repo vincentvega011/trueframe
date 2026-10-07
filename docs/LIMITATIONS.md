@@ -11,6 +11,11 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - **`init_config` can be front-run.** `Config` is a global singleton PDA created by whoever calls `init_config` first, and that caller becomes admin and chooses the verifier. `scripts/setup.sh` calls it immediately after deploying, so the window is a few seconds on a program nobody has been told about. A production version would require the program's upgrade authority as signer.
 - **Classic SPL Token only.** The program supports the original SPL Token program; Token-2022 mints (transfer fees, interest-bearing extensions) are not supported and would break the exact-amount accounting.
 - Any signer may claim a request, including its own requester.
+- **The verifier chooses when to call `open_challenge`,** so a dishonest verifier could wait for a favorable slot hash and thereby bias which frames are sampled. Acceptable because the verifier is already fully trusted (it also posts the verdict); a randomized committee would fix both. The seed itself is auditable: `Submission.sample_slot` names the SlotHashes entry used, which can be re-read while it is within the sysvar's 512-slot window (about 3.5 minutes).
+- **Accounts are never closed.** `Request`, `Submission` and the (emptied) vaults stay on-chain after `Paid` or `Slashed`, so a few thousand lamports of rent per request are never returned. Deliberate: closing the `Request` would erase the terminal status the UI and verifier report read (PROTOCOL.md section 15.1).
+- **A payout needs the node's token account to exist** (and a refund the requester's). Anyone can create an associated token account for any owner, so this is recoverable, but the payout fails until it exists.
+- A `Fail` verdict cannot be appealed or overturned, and a verdict arriving after the window is rejected; a node whose reveal server was merely offline is slashed.
+- Tokens sent to a vault by a third party are not swept by a payout or slash (only the recorded amounts move) and stay in the vault forever.
 - Devnet / localnet only. No mainnet.
 
 ## Detection
@@ -29,7 +34,7 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 
 ## Shortcuts in code
 - **SHORTCUT: the node's reveal URL is not on-chain.** `Request`/`Submission` carry no endpoint. The node writes its URL to `.localnet/reveal.json` (`node/client.py`, `start_server`) and the verifier is pointed at it through that file or `PORF_REVEAL_URL`. A real deployment would put an endpoint (or a registry entry) on-chain. Consequence: the verifier trusts whoever controls that file, and only one node per machine can be announced.
-- Verifier-supplied blockhash fallback for sampling: **not used**; SlotHashes is the intended source. If that changes it must be recorded here with the grinding caveat (the verifier could grind blockhashes to bias the sample).
+- Verifier-supplied blockhash fallback for sampling: **not used**. The SlotHashes sysvar is read on-chain, so the fallback (and its blockhash-grinding caveat) does not apply.
 
 ## Node
 - **The reveal server is plain HTTP with no authentication** and serves any committed job to anyone who can reach it.

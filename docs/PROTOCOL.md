@@ -118,15 +118,29 @@ In a 3-leaf tree, leaf 2 is paired with a copy of itself. Flipping that sibling 
 On-chain derivation **[DECIDED]**, inside `open_challenge`:
 - Read the SlotHashes sysvar (`UncheckedAccount` with `address = sysvar::slot_hashes::ID`), reading the **most recent entry directly from the account data** without deserializing the whole sysvar. Layout: `u64 len` then entries of `(u64 slot, [u8;32] hash)`, newest first, so the entry is at offset 8.
 - Require `entry.slot > submission.commit_slot`.
-- `sample_seed = sha256(merkle_root || entry.hash)`; stored in `Submission.sample_seed`.
-- **Time box: 1 hour.** If this cannot be made to work, fall back to a verifier-supplied blockhash + slot (program requires `slot > commit_slot`), mark `// SHORTCUT:`, and add the grinding caveat to LIMITATIONS.md. **Status: [TBD] — SlotHashes path in use unless recorded otherwise here.**
+- `sample_seed = sha256(merkle_root || entry.hash)`; stored in `Submission.sample_seed`. The slot of that entry is stored in **`Submission.sample_slot`** so anyone can audit the seed: read the SlotHashes entry for `sample_slot` (while it is still in the sysvar's 512-slot window, about 3.5 minutes) and recompute the hash. `py/tests/test_challenge_flow.py` does exactly this against a live chain.
+- The newest SlotHashes entry is the **previous** slot (the current slot's hash does not exist yet), so `open_challenge` in the same slot as the commit fails with `SlotHashNotNewer`; the verifier client retries (bounded: `ChainClient.open_challenge(max_attempts=20, delay=0.4)`, a clear error when exhausted). Empty or malformed sysvar data is `SlotHashesUnavailable`. The parser trusts the length prefix and validates it against the account size; it never reads past the data.
+- **Time box: 1 hour.** If this cannot be made to work, fall back to a verifier-supplied blockhash + slot (program requires `slot > commit_slot`), mark `// SHORTCUT:`, and add the grinding caveat to LIMITATIONS.md. **Status: DONE: the SlotHashes path works, in LiteSVM (injected) and on a real validator; the verifier-supplied fallback was not needed and is not in the code.**
 
 Indices are computed **off-chain by one shared pure function** (`py/porf/verifier/sampler.py`) **[DECIDED]**:
 - `rng = random.Random(int.from_bytes(sample_seed, "little"))`
 - If `N >= 7`: `indices = {0, N-1}` ∪ 5 unique draws from `1..N-2` → **7 total**.
 - If `N < 7`: `min(5, N)` unique draws from `0..N-1`.
 - Unique draws: repeat `rng.randrange(lo, hi + 1)`, rejecting duplicates, until the count is reached. Return sorted.
-- `Submission.sample_count` = the total (7 for N=20) **[DECIDED]**.
+- `Submission.sample_count` = the total, computed **on-chain** in `open_challenge` by `state::sample_count_for` **[DECIDED]**:
+
+| N (`frame_count`) | `sample_count` | Composition |
+|---|---|---|
+| 1 | 1 | the only frame |
+| 2 | 2 | both frames |
+| 5 | 5 | all five |
+| 6 | 5 | 5 unique draws from `0..5` |
+| 7 | 7 | frames 0 and 6, plus all 5 of `1..5` |
+| 8 | 7 | frames 0 and 7, plus 5 unique draws from `1..6` |
+| 20 | 7 | frames 0 and 19, plus 5 unique draws from `1..18` |
+| 1024 | 7 | frames 0 and 1023, plus 5 unique draws from `1..1022` |
+
+**Required cross-check test for the Python sampler (Day 4b):** for each N in this table, `sampler(sample_seed, N)` must return **exactly** `sample_count` unique, sorted, in-range indices (and, for `N >= 7`, must contain 0 and N-1); and the on-chain `sample_count` read from a challenged request must equal `len(sampler(...))`. The Rust unit test `state::tests::sample_count_table` and the LiteSVM test `sample_count_follows_the_protocol_table` pin the on-chain side of the same table.
 
 ### Detection probability
 
@@ -155,6 +169,20 @@ All **[DECIDED]**.
 - `slash_and_refund` — anyone, any time after a `Fail` verdict is recorded (no need to wait for the window to end). Requires `verdict == Fail`: escrow → requester, **stake → requester**, status `Slashed`. No treasury. Slash on `Pass` is rejected.
 - `timeout_refund` — anyone. `Open` past `claim_deadline`: escrow → requester. `Claimed` past `commit_deadline`: escrow → requester **and stake → requester**. Status `Expired`. (The node is penalised for not committing.)
 - Because verdicts close at `challenge_window_end` and `Pending` then pays, the window length is the verifier's deadline. Verifier tooling must finish within it, including the retry budget in §7.
+
+**Status transitions (implemented):**
+
+| From | Instruction | To |
+|---|---|---|
+| `Committed` | `open_challenge` (verifier) | `Challenged` (window starts) |
+| `Challenged`, verdict `Pending`, `now < window_end` | `submit_verdict(Pass)` | **`Verified`**, verdict `Pass` |
+| same | `submit_verdict(Fail)` | **stays `Challenged`**, verdict `Fail` (only the verdict field changes) |
+| `Verified`, or `Challenged` with verdict `Pending`; `now >= window_end` | `finalize_payout` | `Paid` |
+| `Challenged` with verdict `Fail`, any time | `slash_and_refund` | `Slashed` |
+
+**Check order**, so each failure has one predictable error: `submit_verdict`: verifier (`UnauthorizedVerifier`), status `Challenged` (`InvalidStatus`), argument is not `Pending` (`InvalidVerdict`), verdict not yet set (`VerdictAlreadySet`), `now < window_end` (`ChallengeWindowClosed`). `finalize_payout`: status `Challenged` or `Verified` (`InvalidStatus`), verdict not `Fail` (`VerdictIsFail`), `now >= window_end` (`ChallengeWindowOpen`). `slash_and_refund`: verdict is `Fail` (`VerdictNotFail`), status `Challenged` (`InvalidStatus`). Consequences: a second verdict after `Pass` is `InvalidStatus` (status moved to `Verified`) but after `Fail` it is `VerdictAlreadySet`; a slash on `Pass` or `Pending` is `VerdictNotFail`; a second slash or a payout after a slash is `InvalidStatus`.
+
+**Money:** payouts move the **recorded** `escrow_amount` and `stake_amount` (not the vault balances), as the `Request` PDA, with `transfer_checked`. Tokens sent to a vault by someone else stay in the vault. `finalize_payout` requires the destination token account to be owned by `request.node`; `slash_and_refund` requires it to be owned by `request.requester`. Passing a vault as its own destination, or the two vaults swapped, is refused by Anchor 1.x's duplicate-mutable-account check (`ConstraintDuplicateMutableAccount`) before any other check.
 
 ## 7. Verifier checks
 
@@ -187,7 +215,7 @@ Verdict is `Pass` only if every sampled frame passes every check. The report (JS
 
 ## 10. On-chain account layout additions
 
-`Request` gains `claim_duration`, `commit_duration`, `challenge_window_secs`, `created_at`, `claimed_at` (all `i64`). `Submission` unchanged. `Config` added. `stake_amount` derives from `Config.stake_bps`. New instruction `init_config`.
+`Request` gains `claim_duration`, `commit_duration`, `challenge_window_secs`, `created_at`, `claimed_at` (all `i64`). `Submission` gains `sample_slot: u64` (set by `open_challenge`). `Config` added. `stake_amount` derives from `Config.stake_bps`. New instruction `init_config`.
 
 ## 11. Testing approach
 
@@ -334,7 +362,7 @@ Code: `programs/proof-of-render/src/`. Anchor 1.1.2, classic SPL Token program o
 
 Both vaults are created by `create_request` (the requester pays their rent). Payouts and refunds sign as the `Request` PDA, using `["request", requester, request_id_le, bump]`. Every token transfer is `transfer_checked`, and every token account is constrained on `mint` and `authority`.
 
-**Closing order (for Day 4+):** at a terminal status the vaults must be **emptied and closed first (rent returned to the requester), and only then may the `Request` account be closed**, because the `Request` PDA is the vault authority and a vault cannot be closed without it. If closing proves complicated, skip closing entirely and record that in LIMITATIONS.md; funds are never at risk either way.
+**Closing order, and the decision not to close:** if accounts were closed at a terminal status, the vaults would have to be **emptied and closed first (rent returned to the requester), and only then the `Request` account**, because the `Request` PDA is the vault authority. **Decision (Day 4): nothing is closed.** The terminal `Request` and `Submission` records (`Paid`, `Slashed`, verdict, sample fields) must stay readable for the UI timeline, the verifier report and tests, and closing the `Request` would destroy exactly that. The cost is a little rent per request (LIMITATIONS.md); funds are never at risk. Anyone adding closing later must follow the order above.
 
 ### 15.2 Parameter rules (`create_request`)
 
@@ -358,13 +386,13 @@ The overflow check on the summed durations is made up front so that a later `cla
 
 ### 15.4 Errors (`errors.rs`, codes start at 6000)
 
-`InvalidStakeBps, ZeroFrames, TooManyFrames, ZeroPrice, InvalidDuration, InvalidOcclusionLevel, InvalidSceneType, InvalidResolution, ResolutionTooLarge, ZeroStake, MathOverflow, WrongMint, InvalidStatus, UnauthorizedVerifier, UnauthorizedNode, ClaimDeadlinePassed, CommitDeadlinePassed, DeadlineNotReached, ChallengeWindowOpen, ChallengeWindowClosed, FrameCountMismatch, ZeroMerkleRoot, SlotHashesUnavailable, SlotHashNotNewer, VerdictAlreadySet, VerdictNotFail, VerdictIsFail, NotImplemented`. Token-account mismatches surface as Anchor's own `ConstraintTokenMint` / `ConstraintTokenOwner` / `ConstraintSeeds`; a `mint` account that is not `config.mint` is `WrongMint`.
+`InvalidStakeBps, ZeroFrames, TooManyFrames, ZeroPrice, InvalidDuration, InvalidOcclusionLevel, InvalidSceneType, InvalidResolution, ResolutionTooLarge, ZeroStake, MathOverflow, WrongMint, InvalidStatus, UnauthorizedVerifier, UnauthorizedNode, ClaimDeadlinePassed, CommitDeadlinePassed, DeadlineNotReached, ChallengeWindowOpen, ChallengeWindowClosed, FrameCountMismatch, ZeroMerkleRoot, SlotHashesUnavailable, SlotHashNotNewer, VerdictAlreadySet, InvalidVerdict, VerdictNotFail, VerdictIsFail, NotImplemented`. Token-account mismatches surface as Anchor's own `ConstraintTokenMint` / `ConstraintTokenOwner` / `ConstraintSeeds`; a `mint` account that is not `config.mint` is `WrongMint`.
 
 ### 15.5 Test status
 
 Tests are in `programs/proof-of-render/tests/` (`config.rs`, `create_request.rs`, `stake_and_claim.rs`, `stubs.rs`, shared harness in `common/`). Written for Day 2: every transition of the three implemented instructions with exact balances; init twice; wrong mint (mint account, requester token account, node token account); wrong token owner; double claim; claim after the deadline and exactly at it; claim on each of the seven non-`Open` statuses; each parameter bound, both sides; overflow; zero stake; insufficient balance; wrong stake vault; missing signer; and a check that the six unimplemented instructions return `NotImplemented`.
 
-**Pending (§11 list), by day:** Day 4: `open_challenge` with SlotHashes, verdict after the window must fail, payout on `Pending` after the window must succeed, double payout, payout before the window ends, slash on `Pass`, payout on `Fail`, wrong mint on payouts/refunds. Day 5: `timeout_refund` (deadline not reached; claim without commit sends the stake to the requester; no claim).
+**Pending (§11 list):** Day 5: `timeout_refund` (deadline not reached; claim without commit sends the stake to the requester; no claim). Everything else on the list is written; see 15.7.
 
 ### 15.6 `submit_commitment(merkle_root: [u8; 32], frame_count: u32)`
 
@@ -449,3 +477,21 @@ The reveal URL is not on-chain. The node writes `{"url", "node", "started_at"}` 
 ### 16.7 Tests (`py/tests/test_node.py`)
 
 No validator needed: frame hashing against the spec and an independent recomputation, leaf cache, reveal payloads verifying for 1, 2, 3, 7 and 8 frames, out-of-range indexes, a file changed after the commit (not hidden; leaf block still shows the committed values), server routes and every 404 case, request selection and latest-commit default, job state machine and collision guard, unreadable job files, cheat hooks are no-ops. Against a live localnet with real Blender renders: **the gate** (a 10-frame request is picked up, rendered and committed; the on-chain root equals the root recomputed independently from the files on disk; every `/frame/<i>` proof verifies against the on-chain root; the served scene equals `generate_scene` for the on-chain parameters; out-of-range is 404; a second poll does nothing), the four recovery cases above, a claim by another node left alone, and the real `python -m porf.node.client` process end to end.
+
+### 15.7 `open_challenge`, `submit_verdict`, `finalize_payout`, `slash_and_refund`
+
+Accounts. `open_challenge`: `verifier` (signer), `config`, `request` (mut), `submission` (mut), `slot_hashes` (`UncheckedAccount`, `address = SlotHashes::id()`). `submit_verdict(verdict)`: `verifier`, `config`, `request` (mut), `submission` (mut). `finalize_payout`: `caller` (any signer), `request` (mut), `mint` (must equal `request.mint`, else `WrongMint`), `submission`, `escrow`, `stake_vault`, `node_token` (`token::authority = request.node`), `token_program`. `slash_and_refund`: the same, with `requester_token` (`token::authority = request.requester`). The verifier is checked against `Config.verifier` (`UnauthorizedVerifier`). Vaults are PDA-checked and constrained to `mint` with the `Request` PDA as authority.
+
+Effects and check order are in section 5 (`open_challenge`) and section 6 (the other three). `open_challenge` has no deadline of its own: a request that is never challenged stays `Committed` (LIMITATIONS.md).
+
+**Implementation notes.** (1) The token accounts of `finalize_payout` and `slash_and_refund` are `Box`ed: unboxed, the generated account-deserialization function overflowed the 4 KB SBF stack frame ("access violation in stack frame") on a real run. (2) The SlotHashes parser (`slot_hashes.rs`) is a pure function with native unit tests for empty, truncated and lying (huge count) data; LiteSVM cannot inject malformed sysvar data, so those cases are covered there, not in the integration tests. (3) SHA-256 comes from `solana-sha256-hasher =3.1.0` (the only direct hashing dependency; `solana_program` no longer re-exports one). (4) `submit_verdict` rejects `Pending` as an argument (`InvalidVerdict`).
+
+**Tests** (LiteSVM, SlotHashes injected by writing the sysvar account; 96 program tests in total):
+- `open_challenge.rs` (11): exact fields including the seed against a hashlib-computed vector; only the newest entry matters; `sample_count` for N = 1, 2, 5, 6, 7, 8, 20, 1024; stale slot hashes (below, equal, one newer) and recovery; empty sysvar; wrong sysvar account; wrong signer and missing signature; every non-`Committed` status; never-committed request; second call changes nothing; another request's submission.
+- `submit_verdict.rs` (9): `Pass` gives `Verified`, `Fail` leaves `Challenged`; unauthorized signers; every wrong status; `Pending` argument; second verdict after each outcome; the window boundary (`window_end - 1` succeeds, `window_end` and later fail); documented check order.
+- `finalize_payout.rs` (12): `Pass` then payout, and `Pending` then payout (at `window_end`, +1, +1,000,000 s) with exact balances; one second early fails for `Verified` and `Pending`; payout on `Fail`; double payout; payout after a slash; every wrong status; wrong destinations (the requester's, a stranger's, a vault, the wrong mint); wrong vaults and wrong mint account; never-committed; donations left alone; missing signature.
+- `slash_and_refund.rs` (12): slash inside, at and long after the window with exact balances; slash on `Pass` / `Pending` / never-challenged; double slash; slash after each kind of payout; wrong status; wrong destinations, vaults and mint; donations left alone; missing signature; both terminal outcomes side by side with token conservation.
+
+**Terminal balances** (requester / node, each starting from `S`; escrow `E`, stake `K`): `Paid`: `S - E` / `S + E`; `Slashed`: `S + K` / `S - K`; both vaults 0 in both cases.
+
+**Live tests** (`py/tests/test_challenge_flow.py`, real validator and CLI, 3-second windows): the honest flow (open with bounded retry, independent audit of the seed from the real SlotHashes account, `Pass`, early payout refused, payout after the window, exact balances, double payout, slash on `Pass`); the tampered flow (`Fail`, unauthorized verdicts, overturning refused, payout refused, immediate slash, exact balances, double slash); optimistic payout on `Pending`, with the verifier too late and no verdict invented; a second `open_challenge` and a misrouted payout rejected. Error codes are compared with the IDL's. Chain-client unit tests cover the retry: it retries only `SlotHashNotNewer`, stops after the bound, and raises a clear message.

@@ -59,6 +59,48 @@ def test_cli_crash_without_json_is_reported(monkeypatch):
     assert e.value.name == "CliCrash"
 
 
+def _scripted_call(monkeypatch, failures: int, error: ChainError | None = None):
+    c, calls, sleeps = ChainClient(), [], []
+
+    def fake_call(command, args=None):
+        calls.append((command, args))
+        if len(calls) <= failures:
+            raise error or ChainError("SlotHashNotNewer", "slot hashes are stale", code=7, logs=["log"], kind="program")
+        return {"signature": "sig"}
+
+    monkeypatch.setattr(c, "call", fake_call)
+    monkeypatch.setattr(chain_mod.time, "sleep", sleeps.append)
+    return c, calls, sleeps
+
+
+def test_open_challenge_retries_slot_hash_not_newer_and_then_succeeds(monkeypatch):
+    c, calls, sleeps = _scripted_call(monkeypatch, failures=2)
+    assert c.open_challenge("keys/verifier.json", request="Req", max_attempts=20, delay=0.4) == {"signature": "sig"}
+    assert len(calls) == 3 and sleeps == [0.4, 0.4]
+    assert calls[0][0] == "open-challenge" and calls[0][1]["request"] == "Req"
+
+
+def test_open_challenge_retry_is_bounded_and_fails_with_a_clear_message(monkeypatch):
+    c, calls, sleeps = _scripted_call(monkeypatch, failures=10**6)
+    with pytest.raises(ChainError) as e:
+        c.open_challenge("keys/verifier.json", request="Req", max_attempts=20, delay=0.4)
+    assert len(calls) == 20 and len(sleeps) == 19 and set(sleeps) == {0.4}   # bounded: 20 tries, 19 waits
+    assert e.value.name == "SlotHashNotNewer" and e.value.code == 7 and e.value.logs == ["log"]
+    assert "after 20 attempts" in e.value.message and "0.4s apart" in e.value.message and "validator" in e.value.message
+
+
+def test_open_challenge_does_not_retry_other_errors_or_by_default(monkeypatch):
+    c, calls, sleeps = _scripted_call(monkeypatch, failures=5, error=ChainError("UnauthorizedVerifier", "nope", kind="program"))
+    with pytest.raises(ChainError) as e:
+        c.open_challenge("keys/node.json", request="Req", max_attempts=20)
+    assert (e.value.name, len(calls), sleeps) == ("UnauthorizedVerifier", 1, [])
+
+    c, calls, sleeps = _scripted_call(monkeypatch, failures=5)   # default: a single attempt, original error, no sleeping
+    with pytest.raises(ChainError) as e:
+        c.open_challenge("keys/verifier.json", request="Req")
+    assert (e.value.name, e.value.message, len(calls), sleeps) == ("SlotHashNotNewer", "slot hashes are stale", 1, [])
+
+
 def test_no_error_numbers_are_hardcoded_in_the_chain_code():
     """Error names must come from the IDL / Anchor logs at runtime, never from a literal number."""
     files = list((chain_mod.CLI_DIR / "src").glob("*.ts")) + [Path(chain_mod.__file__)]
@@ -197,7 +239,7 @@ def test_create_fetch_claim_commit_flow(net):
     assert (sub.request, sub.node) == (view.address, node)
     assert (sub.merkle_root, sub.frame_count) == (root.hex(), 10)
     assert sub.commit_slot > 0
-    assert (sub.sample_seed, sub.sample_count, sub.verdict) == ("00" * 32, 0, "Pending")
+    assert (sub.sample_seed, sub.sample_slot, sub.sample_count, sub.verdict) == ("00" * 32, 0, 0, "Pending")
     assert c.get_request(request=view.address).request.status == "Committed"
 
 
