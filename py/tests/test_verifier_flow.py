@@ -3,7 +3,7 @@ server, the real verifier including its seg re-render, real token balances, and 
 
     honest node, 20 frames at occlusion 3, production render settings  -> verified and paid
     tampered boxes (committed consistently)                             -> slashed (checks 4 and 6)
-    no_occlusion cheat (the node's real --cheat code path)              -> slashed, ONLY check 7 fails
+    each of the five --cheat modes (the node's real code path), 20 frames -> slashed
     a file changed after the commit / a node that is offline            -> slashed
 Skips cleanly without a validator or Blender."""
 import hashlib
@@ -15,6 +15,7 @@ import pytest
 import livenet
 from porf.canon import canonical_bytes
 from porf.chain.client import DEFAULT_CHALLENGE_WINDOW_SECS, CreateRequestParams
+from porf.node import cheats
 from porf.node.client import Node, NodeConfig
 from porf.node.job import Job, build_leaf_cache, write_leaf_cache
 from porf.render.runner import find_blender
@@ -143,26 +144,35 @@ def test_tampered_boxes_over_20_frames_are_slashed(scenario, net):
     assert s.c.get_request(request=s.address).request.status == "Slashed"
 
 
-def test_the_no_occlusion_cheat_is_slashed_and_only_check_7_sees_it(scenario, net):
-    """A node that skips occlusion: forged seg.png with consistent boxes, committed consistently. Checks 1-6 cannot see it."""
-    s = scenario("no_occlusion", 20, samples=8, cheat="no_occlusion")
-    s.honest_commit()                                            # the node's real --cheat path: renders, forges, commits
-    job = Job.load(s.node.out_dir / str(s.c.get_request(request=s.address).request.request_id))
+@pytest.mark.parametrize("mode", cheats.CHEAT_MODES)
+def test_every_cheat_mode_over_20_frames_at_occlusion_3_is_slashed(scenario, net, mode):
+    """The node's real --cheat code path, default fraction (0.5), production render settings. Every cheat commits a consistent
+    Merkle tree over its fake data, so the proofs and the hashes always verify; only the content checks can catch it."""
+    s = scenario(mode, 20, cheat=mode)
+    s.honest_commit()                                            # the node renders, cheats, and commits
+    req = s.c.get_request(request=s.address).request
+    job = Job.load(s.node.out_dir / str(req.request_id))
     assert job.state == "committed"
+    bad = cheats.bad_frames(mode, 42, 20)
+    assert len(bad) == 10
 
-    s.verifier().run_until_settled(timeout=300)
+    s.verifier().run_until_settled(timeout=400)
     rep = s.report()
-    assert rep["verdict"] == "Fail" and len(rep["frames"]) == 7
-    for f in rep["frames"]:
-        by_name = {c["name"]: c for c in f["checks"]}
-        assert all(by_name[n]["passed"] for n in CHECK_NAMES[:6]), (f["index"], [c for c in f["checks"] if not c["passed"]])   # passes checks 1-6
-    failing = s.failing_checks(rep)
-    assert failing == {"seg_rerender"}
-    caught = [f["index"] for f in rep["frames"] if not next(c for c in f["checks"] if c["name"] == "seg_rerender")["passed"]]
-    assert len(caught) == 7, f"check 7 should reject every sampled frame at occlusion 3, rejected {caught}"
-    assert all("seg_rerender failed" in r for r in rep["verdict_reasons"])
-    assert rep["outcome"]["action"] == "slashed"
+    sampled = rep["sample"]["indices"]
+    per_frame = {f["index"]: sorted(c["name"] for c in f["checks"] if not c["passed"]) for f in rep["frames"]}
+    result = {"mode": mode, "verdict": rep["verdict"], "bad_frames": bad, "sampled": sampled, "sampled_bad": [i for i in sampled if i in bad],
+              "failed_checks_by_frame": per_frame, "failing_checks": sorted(s.failing_checks(rep)), "outcome": rep["outcome"],
+              "balances_before": s.before, "balances_after": s.balances(), "stake": s.stake, "escrow": s.escrow}
+    print("\nCHEAT_RESULT " + json.dumps(result, sort_keys=True))
+    (s.tmp / "cheat_result.json").write_text(json.dumps(result, indent=2, sort_keys=True))
+    assert rep["verdict"] == "Fail", f"{mode} was NOT caught: {result}"
+    assert not ({"merkle_proof", "hash_consistency"} & s.failing_checks(rep))      # a consistent lie: never a trivial proof/hash failure
+    assert rep["outcome"]["action"] == "slashed" and rep["outcome"]["destination_delta"] == s.escrow + s.stake
     assert s.balances() == {"requester": s.before["requester"] + s.stake, "node": s.before["node"] - s.stake}
+    assert s.c.get_request(request=s.address).request.status == "Slashed"
+    # a clean frame is never failed on content; the one exception is a good frame that a sampled copy duplicates (image_sanity only)
+    assert all(i in bad or failing == ["image_sanity"] for i, failing in per_frame.items() if failing), per_frame
+    assert mode in ("reuse_frames", "partial") or all(i in bad for i, failing in per_frame.items() if failing), per_frame
 
 
 def test_a_node_that_changes_a_file_after_committing_is_slashed(scenario, net):

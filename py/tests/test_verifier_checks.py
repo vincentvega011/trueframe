@@ -597,7 +597,7 @@ def test_compare_seg_measures_what_it_says():
 
 def test_the_no_occlusion_cheat_passes_checks_1_to_6_and_fails_check_7(tmp_path):
     node = HonestNode(tmp_path, n=8, seed=42, occlusion=3)
-    cheats.after_render("no_occlusion", node.job.dir, node.n)          # the real cheat code, rewriting seg.png and annotations.json
+    cheats.after_render("no_occlusion", node.job.dir, node.n, fraction=1.0)          # the real cheat code, rewriting seg.png and annotations.json
     node.recommit()                                                    # ... and committing it consistently
     ctx = node.ctx()
     caught = 0
@@ -613,7 +613,7 @@ def test_the_no_occlusion_cheat_passes_checks_1_to_6_and_fails_check_7(tmp_path)
 def test_the_cheat_really_changes_the_segmentation_and_keeps_boxes_consistent(tmp_path):
     node = HonestNode(tmp_path, n=4, seed=42, occlusion=3)
     before = {i: seg_of(node.raw(i)).copy() for i in range(4)}
-    cheats.after_render("no_occlusion", node.job.dir, 4)
+    cheats.after_render("no_occlusion", node.job.dir, 4, fraction=1.0)
     node.recommit()
     for i in range(4):
         after = seg_of(node.raw(i))
@@ -624,13 +624,11 @@ def test_the_cheat_really_changes_the_segmentation_and_keeps_boxes_consistent(tm
         assert sum(1 for a in ann if a["bbox"] is None) <= sum(1 for a in node.reveal(i).annotations["objects"] if a["bbox"] is None)
 
 
-def test_cheat_announcements_distinguish_implemented_from_unimplemented_modes(caplog):
+def test_cheat_announcements_are_loud(caplog):
     with caplog.at_level("WARNING"):
         cheats.announce("no_occlusion")
-        cheats.announce("fake_boxes")
-    assert "COMMIT FRAUDULENT DATA" in caplog.text and "not implemented yet" in caplog.text
-    assert cheats.IMPLEMENTED == ("no_occlusion",)
-    assert cheats.after_render("fake_boxes", Path("/nonexistent"), 3) is None   # an unimplemented mode touches nothing
+    assert "COMMIT FRAUDULENT DATA" in caplog.text and cheats.IMPLEMENTED == cheats.CHEAT_MODES
+    assert cheats.after_render(None, Path("/nonexistent"), 3) is None   # no --cheat: nothing is touched
 
 
 from pathlib import Path   # noqa: E402

@@ -484,7 +484,7 @@ def test_an_offline_node_needs_no_rerender_and_a_partial_outage_renders_only_wha
 def test_a_node_with_no_occlusion_is_failed_by_the_verifier_even_though_checks_1_to_6_pass(tmp_path):
     from porf.node import cheats
     node = HonestNode(tmp_path / "node", n=8, occlusion=3)
-    cheats.after_render("no_occlusion", node.job.dir, node.n)
+    cheats.after_render("no_occlusion", node.job.dir, node.n, fraction=1.0)
     node.recommit()
     chain = FakeChain(node)
     make_verifier(tmp_path, chain, node).step()

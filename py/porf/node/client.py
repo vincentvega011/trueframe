@@ -1,7 +1,7 @@
 """The node: polls for Open requests, stakes and claims one, renders it, commits the Merkle root, serves reveals.
 
     python -m porf.node.client --keypair keys/node.json [--out out] [--poll 5] [--port 8787] [--samples 64]
-                               [--only-request ADDR] [--cheat MODE]
+                               [--only-request ADDR] [--cheat MODE [--fraction F]]
 
 Chain access goes only through porf.chain.client. Job state lives in <out>/<request_id>/ (porf.node.job), so a
 restart resumes where it stopped: after claim -> render; after render -> commit; after commit -> just serve.
@@ -41,6 +41,7 @@ class NodeConfig:
     only_requester: str | None = None
     max_frames: int = 1024
     cheat: str | None = None
+    cheat_fraction: float | None = None   # share of frames the cheat corrupts (default 0.5); only with cheat
     host: str = "127.0.0.1"
     port: int = 8787
     announce_file: Path | None = DEFAULT_ANNOUNCE
@@ -164,13 +165,13 @@ class Node:
 
     def _render(self, job: Job) -> None:
         d = job.data
-        seed = cheats.before_render(self.cfg.cheat, d["seed"])
+        seed = d["seed"]
         log.info("rendering %d frames of %s (seed %d, occlusion %d, %dx%d, %d samples)", d["num_frames"], job.request,
                  seed, d["occlusion_level"], d["width"], d["height"], self.cfg.samples)
         t0 = time.time()
-        render_frames(seed, list(range(d["num_frames"])), job.dir, d["occlusion_level"], d["width"], d["height"],
-                      self.cfg.samples, self.cfg.gpu)
-        cheats.after_render(self.cfg.cheat, job.dir, d["num_frames"])
+        for plan_seed, frames in cheats.render_plan(self.cfg.cheat, seed, d["num_frames"], self.cfg.cheat_fraction):   # honest: one entry
+            render_frames(plan_seed, frames, job.dir, d["occlusion_level"], d["width"], d["height"], self.cfg.samples, self.cfg.gpu)
+        cheats.after_render(self.cfg.cheat, job.dir, d["num_frames"], seed, self.cfg.cheat_fraction, d["occlusion_level"], d["width"], d["height"])
         cache = build_leaf_cache(job)  # after the cheat hook: the root commits to whatever is on disk
         write_leaf_cache(job, cache)
         job.update(state="rendered", merkle_root=cache["merkle_root"], rendered_at=time.time())
@@ -223,7 +224,7 @@ class Node:
 
     def run(self, stop: threading.Event | None = None) -> None:
         stop = stop or threading.Event()
-        cheats.announce(self.cfg.cheat)
+        cheats.announce(self.cfg.cheat, self.cfg.cheat_fraction)
         mint = self.chain.get_config().mint
         self.chain.create_token_account(self.cfg.keypair, mint)  # idempotent: make sure the node can receive stake and payout
         self.start_server()
@@ -256,12 +257,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only-requester", help="claim only requests from this requester")
     ap.add_argument("--max-frames", type=int, default=1024)
     ap.add_argument("--announce-file", default=str(DEFAULT_ANNOUNCE), help="where to write the reveal URL for the verifier ('' to disable)")
-    ap.add_argument("--cheat", choices=cheats.CHEAT_MODES, help="demo cheat mode (not implemented yet: no-op)")
+    ap.add_argument("--cheat", choices=cheats.CHEAT_MODES, help="demo cheat mode (test tooling: commits fraudulent data)")
+    ap.add_argument("--fraction", type=float, help="share of frames the cheat corrupts, in (0, 1] (default 0.5; needs --cheat)")
     args = ap.parse_args(argv)
+    if args.fraction is not None and not args.cheat:
+        ap.error("--fraction needs --cheat")
+    if args.fraction is not None and not 0.0 < args.fraction <= 1.0:
+        ap.error("--fraction must be in (0, 1]")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = NodeConfig(
         keypair=args.keypair, out_dir=Path(args.out), poll_interval=args.poll, samples=args.samples, gpu=args.gpu,
-        only_request=args.only_request, only_requester=args.only_requester, max_frames=args.max_frames, cheat=args.cheat,
+        only_request=args.only_request, only_requester=args.only_requester, max_frames=args.max_frames, cheat=args.cheat, cheat_fraction=args.fraction,
         host=args.host, port=args.port, announce_file=Path(args.announce_file) if args.announce_file else None,
     )
     try:

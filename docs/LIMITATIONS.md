@@ -48,4 +48,4 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - Output directories are named by `request_id`, which is only unique per requester; the node refuses (before staking) a request whose id collides with an existing job directory rather than mixing the two.
 - The node polls with `getProgramAccounts` via the chain CLI (about 0.7 s per call). Fine on localnet; a public devnet RPC may rate-limit it.
 - A job marked `failed` is never retried automatically, and a failed job can leave the node's stake locked until the request is refunded or slashed.
-- `--cheat` is accepted but does nothing yet; a node started with it behaves honestly (and logs that).
+- **`--cheat` modes are test tooling that commits fraudulent data on purpose** (PROTOCOL.md §8, §16.6). Except `partial` they render honestly and then rewrite, so they save no compute and do not model a real lazy node's economics. A bad frame is caught with certainty when sampled, but a cheat hiding in the middle of a 20-frame request evades one verification with probability 0.65% at the default fraction (10 bad frames) and 72% with a single bad frame (§8.1).

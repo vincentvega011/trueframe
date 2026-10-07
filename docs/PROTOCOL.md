@@ -203,13 +203,38 @@ Verdict is `Pass` only if every sampled frame passes every check. The report (JS
 
 ## 8. Cheat modes → checks that catch them
 
-| Mode | Primary catching check |
-|---|---|
-| `reuse_frames` | 5 (duplicate image hash); also 2/3 (scene/image mismatch for the copied frame) |
-| `fake_boxes` | 4 (annotation plausibility); 3 if the committed hash is of the real boxes |
-| `wrong_seed` | 2 (scene match) |
-| `partial` | 5 (duplicates); the forced frame N-1 guarantees a tail check |
-| `no_occlusion` (test cheat, implemented) | **7** (`seg_rerender`) only: it paints full silhouettes into `seg.png`, derives consistent boxes, and commits consistently, so checks 1 to 6 all pass |
+Every mode commits a **consistent** Merkle tree over its fake data (the leaves are built after the cheat rewrites the files), so the proof and hash checks (1, 3) never fire; each frame's `scene.json` is the honest scene of that frame except in `wrong_seed`. The frames a mode corrupts are `cheats.bad_frames(mode, seed, n, fraction)`, section 16.6. Observed = the live 20-frame, occlusion-3, default-fraction run of each mode (section 8.2).
+
+| Mode | What the node does to a bad frame | Checks expected to fire on a sampled bad frame | Observed |
+|---|---|---|---|
+| `reuse_frames` | rgb, depth, seg and annotations are copied from a good frame; own honest `scene.json` | **4, 6, 7** (the copied boxes and seg describe another scene); **5** on both frames when a copy and its source (or two copies) are in the same sample | 4, 6, 7 on every bad frame; 5 on the two honest source frames whose copies were sampled |
+| `fake_boxes` | boxes shifted 12 to 40 px, rescaled 0.7x to 1.4x, invented for hidden objects; honest seg | **6** always (boxes must equal what `seg.png` yields), **4** usually (box outside the projected box); not 7 | 4 and 6 on every bad frame |
+| `wrong_seed` | frame rendered from a different seed | **2** always; also 4, 6, 7 (the wrong scene's boxes and ids do not fit the requested scene) | 2, 4, 6, 7 |
+| `partial` | only the first (1-f)*n frames are rendered; each tail frame is a copy of a rendered frame | as `reuse_frames`: **4, 6, 7**, plus **5** when copy and source are both sampled. Frame n-1 is always a bad frame and always sampled | 4, 6, 7 on every bad frame; 5 on two of them |
+| `no_occlusion` | full silhouettes painted in id order into `seg.png`, boxes derived from it | **7 only**; checks 1 to 6 pass | 7 only |
+
+### 8.1 Detection probability for N = 20, k = 7
+
+The sample is frames 0 and 19 plus 5 of the 18 middle frames (section 5). The selector hides bad frames in the middle first, which is the node's best strategy, so these are worst-case for the verifier. A sampled bad frame is caught with certainty by every mode above (the checks in the table fire on every one of them in the live runs); the probability is therefore that of sampling at least one bad frame: `1 - C(18-b, 5) / C(18, 5)`.
+
+| Case | bad frames `b` | P(detect), hidden in the middle | `partial` (always includes frame 19) |
+|---|---|---|---|
+| fraction 0.5 (the default) | 10 | **0.9935** (a node that gets away: 56 of 8568 samples) | 1.000 |
+| a single bad frame (`--fraction 0.05`) | 1 | **0.278** | 1.000 |
+
+So one run of a default-fraction cheat can, with probability 0.65%, evade the verifier for the four middle-hiding modes; the demo requests are chosen so that this is checked beforehand (the selection is deterministic per seed and the sample is public once drawn). `1 - (1-f)^7` gives 0.992 and 0.302.
+
+### 8.2 Live end-to-end results (localnet, 20 frames, occlusion 3, default fraction 0.5, production render settings, 60 s window)
+
+| Mode | Caught | Bad frames sampled / 7 | Checks that fired | Stake slashed | Refunded to requester |
+|---|---|---|---|---|---|
+| `reuse_frames` | yes | 3 | 4, 5, 6, 7 | 4.0 USDC | 24.0 USDC (20.0 escrow + 4.0 stake) |
+| `fake_boxes` | yes | 5 | 4, 6 | 4.0 USDC | 24.0 USDC |
+| `wrong_seed` | yes | 1 | 2, 4, 6, 7 | 4.0 USDC | 24.0 USDC |
+| `partial` | yes | 3 | 4, 5, 6, 7 | 4.0 USDC | 24.0 USDC |
+| `no_occlusion` | yes | 1 | 7 | 4.0 USDC | 24.0 USDC |
+
+The reproduction is `py/.venv/bin/pytest -q py/tests/test_verifier_flow.py -k every_cheat -s` on a fresh localnet (prints one `CHEAT_RESULT` JSON line per mode). `wrong_seed` and `no_occlusion` were caught on a single sampled bad frame each, as 0.9935 predicts for most draws but not all.
 
 ## 9. Cluster and keys [DECIDED / ASSUMED]
 
@@ -476,11 +501,15 @@ The reveal URL is not on-chain. The node writes `{"url", "node", "started_at"}` 
 
 ### 16.6 Cheat hooks
 
-`node/cheats.py` exposes `before_render(mode, seed) -> seed` and `after_render(mode, job_dir, num_frames)`, called around the render and before the leaves are built, so a cheat's changes are what gets committed. `--cheat <mode>` accepts `reuse_frames`, `fake_boxes`, `wrong_seed`, `partial` (all still no-ops that log a warning and behave honestly; Day 5) and **`no_occlusion` (implemented, test tooling)**. `no_occlusion` models a node that does no occlusion reasoning: for every frame it paints each object's full projected silhouette (`projection.silhouette_polygon`) into `seg.png` in ascending object-id order with no depth sorting, so racks, which have the lowest ids, end up under the pallets and boxes that stand behind them, then rewrites `annotations.json` from that `seg.png` with the real `build_annotations`. All hashes, proofs, box-containment tests and annotation-equals-seg tests hold; only check 7 exposes it. `rgb.png` and `depth.png` stay as rendered.
+`node/cheats.py` is test tooling and runs only when the node is started with `--cheat <mode>` (`reuse_frames`, `fake_boxes`, `wrong_seed`, `partial`, `no_occlusion`) and optionally `--fraction F` (default 0.5, valid range (0, 1]; `--fraction` without `--cheat` is rejected). Two hooks: `render_plan(mode, seed, n, fraction) -> [(seed, frames)]` decides what is rendered from which seed (`wrong_seed` renders its bad frames from `wrong_seed_for(seed)`, `partial` renders only the front), and `after_render(mode, job_dir, n, seed, fraction, occlusion, width, height)` rewrites files before the leaves are built, so the committed root covers the lie.
+
+**Frame selection** is `bad_frames(mode, seed, n, fraction)`: a pure function of the mode, the request's seed, the frame count and the fraction (SHA-256 seeded RNG), so a run is reproducible. Count = `ceil(fraction * n)` (so the default corrupts 10 of 20, always at least half), capped at `n-1` for the copying modes (they need a real frame to copy). Bad frames are drawn from the middle frames `1..n-2` first, and from frames 0 and n-1 only when the fraction exceeds the middle; `partial` takes the last `count` frames.
+
+Per mode: `no_occlusion` paints each bad frame's full silhouettes in ascending object-id order (no depth sorting) and rebuilds the annotations from that `seg.png`. `reuse_frames` copies `rgb.png`, `depth.png`, `seg.png`, `annotations.json` of a good frame (cycling through the good frames) over each bad frame and keeps the bad frame's own honest `scene.json`. `fake_boxes` moves, rescales or invents every box of a bad frame (seg stays honest). `wrong_seed` and `partial` are described in the table of section 8. Except for `partial`, which really skips the renders, the cheats render everything honestly and then rewrite, so they save no compute.
 
 ### 16.7 Tests (`py/tests/test_node.py`)
 
-No validator needed: frame hashing against the spec and an independent recomputation, leaf cache, reveal payloads verifying for 1, 2, 3, 7 and 8 frames, out-of-range indexes, a file changed after the commit (not hidden; leaf block still shows the committed values), server routes and every 404 case, request selection and latest-commit default, job state machine and collision guard, unreadable job files, cheat hooks are no-ops. Against a live localnet with real Blender renders: **the gate** (a 10-frame request is picked up, rendered and committed; the on-chain root equals the root recomputed independently from the files on disk; every `/frame/<i>` proof verifies against the on-chain root; the served scene equals `generate_scene` for the on-chain parameters; out-of-range is 404; a second poll does nothing), the four recovery cases above, a claim by another node left alone, and the real `python -m porf.node.client` process end to end.
+No validator needed: frame hashing against the spec and an independent recomputation, leaf cache, reveal payloads verifying for 1, 2, 3, 7 and 8 frames, out-of-range indexes, a file changed after the commit (not hidden; leaf block still shows the committed values), server routes and every 404 case, request selection and latest-commit default, job state machine and collision guard, unreadable job files, cheat hooks do nothing without a mode (the cheat modes themselves: `test_cheats.py`, 50 tests on frame selection, fractions, determinism and what each mode writes). Against a live localnet with real Blender renders: **the gate** (a 10-frame request is picked up, rendered and committed; the on-chain root equals the root recomputed independently from the files on disk; every `/frame/<i>` proof verifies against the on-chain root; the served scene equals `generate_scene` for the on-chain parameters; out-of-range is 404; a second poll does nothing), the four recovery cases above, a claim by another node left alone, and the real `python -m porf.node.client` process end to end.
 
 ### 15.7 `open_challenge`, `submit_verdict`, `finalize_payout`, `slash_and_refund`
 

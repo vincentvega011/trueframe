@@ -196,15 +196,12 @@ def test_unreadable_job_files_are_ignored(tmp_path):
     assert [j.request for j in Job.scan(tmp_path)] == ["ReqAddr1"]
 
 
-def test_cheat_hooks_are_noops_for_now(tmp_path, caplog):
-    assert cheats.before_render("reuse_frames", 42) == 42
+def test_cheat_hooks_do_nothing_without_a_cheat_mode(tmp_path):
+    assert cheats.render_plan(None, 42, 3) == [(42, [0, 1, 2])]
     job = make_job(tmp_path, n=3)
     before = {p: p.read_bytes() for p in job.dir.rglob("*") if p.is_file()}
-    assert cheats.after_render("reuse_frames", job.dir, 3) is None
+    assert cheats.after_render(None, job.dir, 3, seed=42) is None
     assert {p: p.read_bytes() for p in job.dir.rglob("*") if p.is_file()} == before
-    with caplog.at_level("WARNING"):
-        cheats.announce("fake_boxes")
-    assert "HONESTLY" in caplog.text
     assert set(cheats.CHEAT_MODES) == {"reuse_frames", "fake_boxes", "wrong_seed", "partial", "no_occlusion"}
 
 
@@ -404,4 +401,4 @@ def test_node_process_end_to_end(net, tmp_path):
     finally:
         proc.terminate()
         out = proc.communicate(timeout=20)[0]
-    assert "HONESTLY" in out  # --cheat partial is accepted but is a no-op today, and says so
+    assert "COMMIT FRAUDULENT DATA" in out  # --cheat partial is announced loudly
