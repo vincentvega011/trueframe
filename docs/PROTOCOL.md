@@ -657,3 +657,25 @@ Program `7jhnpAu8H9rtDhEyXRmFCicjGLUepXoafE4SiE7EvDLw` on devnet (373,416 bytes,
 
 Transaction signatures, honest request `ArSWrPjDQvv7J41jvcwh55KX8o63ad54rRWYGtse2XRv`: create `3jmtDeY8ujQ3Qqrhz32rZgzAFq1AZybR2t7pY8ETiATRKZUXYHpz1HJvCDwaV8BYgVCvGGLKuyHC3E9XW6GPgr7n`, claim `2HCb5GKg7NExhoSm58xwMS5QiJgR1L3NdPzE61KTcrG2N57x9cppJnhDuLTJjP19orqixrRSGngg8qYRgHYUznhs`, commit `kGiYNeKUDFcuQc1gS6Q6FYzmxc1VcaNDAumhw7xzba5NNao23hs6jVcgXc4RdAg9WcNgJiNt8inxFzZ1q1rnLwC`, open_challenge `4jHQN5xznJQmNkG447mQA7Zw9XHCbD8z5cVPHpHLyy6ZyR6pzFAtU4jA48BvoSq9jb1mwi5L6CoMQ3F7sAHafcDX`, verdict `4Lo6b4XhMPfWJDFuiRAN1iBnpH4GvsJYkRFvNiJmrD8RtWYPDT8ENSs2raq3CowL4NX8qmgZfb9ov93HkeYzYBcb`, payout `1jot3qVvj1WxX8rd38qKGWHE6mttnd6RJcYVbRt93ucZfYxnkLKT8Vapx23iXA17PgcF5GAt9rMbTPnZhXpZmPt`.
 Cheat request `4n1BNx57deK8GdohxRVFJS8zYKUD8JgsrDXPdMuw3GEx`: create `3z4PKdcE6Nm88PmqdibrZpeXcwPPvbjwWZPLHt2GJthunqUW1LVksKEV5r3Li9ER6xL6U2XkC8NvQboYWgoPxLFx`, claim `3XEToStg9i3Yk2DGXbVkrMevNFq86uTuXMrF2VtoWqGmGeLpTgZVmh4sHDX7khqEgJwJKyiAF2tZWvLMdbus3EyJ`, commit `38HaAoPZGM5DVTcVsCAcx8aokcF6J8vCVjhuoKNpvzFLemrvi6pf98qScJRHymdRRnLKvSHcpUkfbEMAGYpU1DJk`, open_challenge `3c4a7jeKGVHptS2koo4nhDYUysd5aUgFNaqgjXFtGv7JgtpKTdRPxC2Cn7T31mq9Kno4Q9iZbNu7v84pp7jZ2BUW`, verdict `67j7QZZBsii5vwiws3ugk3aVPtFNxiEkLnqSkxeXdmmUjuxE6YW2Mfa5S4JBCRYGrzxavbS8gRttBbbdMszuSZ29`, slash `2keQ4FsX7HJQqFJAFySpV9zMM4Xzx8mNdMn14xhPXFaQAdn32f2Z6FH2aUiffUyWz4DZpE55eBzTMcBe4oaHtAF1`.
+
+#### Phantom runs (2026-10-08)
+
+Both requests were created from the console in the Phantom browser extension (Testnet Mode, Solana Devnet) and settled by the node and the verifier running in terminals against devnet. Signatures and times are read from the chain (`getSignaturesForAddress`), all six transactions per request succeeded.
+
+**Honest.** All 7 checks passed on all 7 sampled frames; status `Paid`.
+Request [`FUbhyAU19SKaFB4tNfKU4URWwksVAL9jJorfeTVo5d2j`](https://explorer.solana.com/address/FUbhyAU19SKaFB4tNfKU4URWwksVAL9jJorfeTVo5d2j?cluster=devnet):
+- create_request (+0 s): https://explorer.solana.com/tx/3u3Q59f5TF8Qg5sNSTCmmbbngALnfu4oZQGvFwfgDWWiow12J8akdPFs2Z33Z3NeyGxdEaeLg4n4UQ2SNnbEVejY?cluster=devnet
+- stake_and_claim (+10 s): https://explorer.solana.com/tx/3HP12J6eVA7mbAmTtybNV8tT6e6fDLPWBSkd7pEhGKzSkWN21nceSh75XgERaChowu1rLkLamzKkbUkjYbKFkAz7?cluster=devnet
+- submit_commitment (+143 s): https://explorer.solana.com/tx/3nCosmdtVB7FaJPTKwCW3q52vemXfKAtCtWXuFeoZUPCXyeu3EUNMU75K1jEMdjsLR3fVQXzN9fmUyw4Sbk4MbA3?cluster=devnet
+- open_challenge (+150 s): https://explorer.solana.com/tx/acuELX4TVTWL7BxVoKyXbCL5isVza8snw2kUVECR5CzNHsWjiLQsE2yfbNQbkqDYHWTwA5ZRdeBv9Esf2RAAnLj?cluster=devnet
+- submit_verdict (+157 s): https://explorer.solana.com/tx/3ypY4ygqRizjez7R74G5V1XUwYVKbNJ12HuPPi2hX5a1v1WA6YT6YmbkouNfZptiedAb8q3zdh9yUM4D8FjmMbvW?cluster=devnet
+- finalize_payout (+214 s): https://explorer.solana.com/tx/3kUKiK4Ex2EntuXL43GzCEkktTkp6CJ4coJwZChfM4c5VoKJobP4gYcCqR6mRuuEKBrAbaFzm2VcC2ZGgt6orWTZ?cluster=devnet
+
+**Cheat** (`--cheat no_occlusion --fraction 0.8`; frames 3 to 18 corrupted; sampled 0, 9, 11, 13, 15, 17, 19). Frames 9 to 17 failed check 7; frames 0 and 19 passed (they are outside the corrupted range); status `Slashed`, 12 s after `open_challenge`.
+Request [`EDN2pWCD2DJ8Yo9YxP5P2SrasK11oF7UxtbhF9tc3C4y`](https://explorer.solana.com/address/EDN2pWCD2DJ8Yo9YxP5P2SrasK11oF7UxtbhF9tc3C4y?cluster=devnet):
+- create_request (+0 s): https://explorer.solana.com/tx/3o9oe4WrA8WgfeGABCAJpJnf22mKB3BtKM1NRvHsN3fyLi8m5X4FSrMTv4FEYMs1vkNkHWGbLzthoViXJkm35T9N?cluster=devnet
+- stake_and_claim (+6 s): https://explorer.solana.com/tx/28GJtyr1Fy3TCTZYoD27cjwGJjm24hdxrdS9yAkoVst4DKRL96hdLemBwnWjFPpKVhiggNxqSAesoBK4w13t8TuK?cluster=devnet
+- submit_commitment (+142 s): https://explorer.solana.com/tx/4G1tVe8tWibVKhVc4M7XEJja4LQ4MT1rJ372B16d9uhikig3kyS9cajxTjCZoWR4ZNzSSgrQYpDy8qKxF8b8Dwcw?cluster=devnet
+- open_challenge (+148 s): https://explorer.solana.com/tx/24wBSzsGzWyME7B2iJd1Xhfi29Bu8BUjXH4znC5jQ8XCGE7vqfMfsa88gS864VvFWEU1QaH2j3L7SGkcLJAHsEEN?cluster=devnet
+- submit_verdict (+155 s): https://explorer.solana.com/tx/4Lc2mxboC66XXhjQ7FEs7cSo2GZ2VojdU874eJCtcXVBCUJg3eA7pWRoNZRJZSC7YZ6nd9BPssXgZn7eSg7GxYhR?cluster=devnet
+- slash_and_refund (+160 s): https://explorer.solana.com/tx/4R9JeQpw47hQuRBhSW77WMN5RY6pNYVJxHtoMBeXjJQMfpjWSKoSRmokukvLXd6KqVGcV139u2oDBpWpGQ122xfw?cluster=devnet
