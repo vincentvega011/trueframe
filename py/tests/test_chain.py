@@ -354,3 +354,15 @@ def test_a_transaction_that_fails_on_chain_keeps_its_program_error_name():
 
     other = client.call("selftest-anchor-error", {"message": "blockhash not found"})["mapped"]
     assert other["name"] == "Error" and "blockhash not found" in other["message"] and "Unknown action" not in other["message"]
+
+
+def test_an_rpc_provider_key_never_appears_in_a_chain_error(monkeypatch):
+    """A provider URL carries an API key in its path or query; ChainError (and so every log and screen built from it) must not."""
+    from porf.chain.client import ChainError, redact, rpc_host
+    key = "k3yk3yk3yk3y1234567890"
+    for url in (f"https://devnet.example-rpc.com/v2/{key}", f"https://devnet.example-rpc.com/?api-key={key}"):
+        monkeypatch.setenv("DEVNET_RPC_URL", url)
+        e = ChainError("CliCrash", f"fetch failed for {url} (retry {key})")
+        assert key not in str(e) and key not in e.message and url not in e.message
+        assert key not in redact(f"GET {url}")
+        assert rpc_host(url) == "devnet.example-rpc.com"

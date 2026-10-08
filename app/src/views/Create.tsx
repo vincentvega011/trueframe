@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createRequest, getStakeBps, TxError, usdcBalance } from "../chain";
-import { DEFAULTS, DEMO_FRAMES, DEMO_OCCLUSION, DEMO_SEED, IS_LOCALNET, MAX_FRAMES, USDC_DECIMALS } from "../config";
+import { DEFAULTS, DEMO_FRAMES, DEMO_OCCLUSION, DEMO_SEED, IS_LOCALNET, MAX_FRAMES, POLL_MS, USDC_DECIMALS } from "../config";
 import { usdc } from "../format";
 import { usePoll } from "../hooks";
 import { Hash, Notice, TxLink } from "../ui/bits";
@@ -23,8 +23,8 @@ export function CreateView({ go }: { go: (to: string) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<{ signature: string; request: string } | null>(null);
 
-  const stake = usePoll(getStakeBps, 60_000, []);
-  const balance = usePoll(async () => (wallet ? usdcBalance(wallet.publicKey) : undefined), 5000, [wallet?.publicKey.toBase58(), done?.request]);
+  const stake = usePoll(getStakeBps, 120_000, []);
+  const balance = usePoll(async () => (wallet ? usdcBalance(wallet.publicKey)   : undefined), POLL_MS * 3, [wallet?.publicKey.toBase58(), done?.request]);
 
   const parsed = useMemo(() => {
     const problems: string[] = [];
@@ -72,6 +72,9 @@ export function CreateView({ go }: { go: (to: string) => void }) {
   return (
     <div className="view">
       <header className="viewhead"><h1>Create request</h1><p className="dim">Escrow payment for a seeded set of warehouse scenes. A node renders them; the verifier checks a sample before anyone is paid.</p></header>
+      {!IS_LOCALNET && wallet?.kind === "extension" && (
+        <Notice tone="wait" title="Phantom: switch on Testnet Mode">In Phantom open Settings, Developer Settings, Testnet Mode, and choose Solana Devnet. Without it Phantom treats this as mainnet and may warn about the transaction or refuse to sign it.</Notice>
+      )}
       <div className="split">
         <form className="form" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
           <label className="field">
@@ -124,7 +127,7 @@ export function CreateView({ go }: { go: (to: string) => void }) {
             <div><dt>Wallet balance</dt><dd className="mono">{balance.value != null ? usdc(balance.value) : "…"} <small>USDC</small></dd></div>
             <div><dt>Deadlines</dt><dd className="mono">claim {claimSecs} s, commit {commitSecs} s, challenge window {windowSecs} s</dd></div>
           </dl>
-          {IS_LOCALNET && <p className="dim small">Local validator, mock USDC.</p>}
+          <p className="dim small">{IS_LOCALNET ? "Local validator, mock USDC." : "Devnet, mock USDC (no real value)."}</p>
         </section>
       </div>
 

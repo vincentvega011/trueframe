@@ -17,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 
-from .chain.client import REPO_ROOT, ChainClient, ChainError, CreateRequestParams
+from .chain.client import devnet_rpc_url, rpc_host, REPO_ROOT, ChainClient, ChainError, CreateRequestParams
 from .node import cheats
 from .verifier.sampler import sample_indices
 
@@ -43,11 +43,15 @@ class Demo:
             raise DemoError(f"no {cluster} environment: run `scripts/setup.sh --cluster {cluster}` first")
         self.env = json.loads(env_file.read_text())
         self.cluster = cluster
-        self.c = ChainClient(rpc_url=self.env["rpc_url"])
+        # devnet: the URL (possibly with an API key) comes from the environment and is never stored in env.json or printed
+        self.rpc_url = devnet_rpc_url() if cluster == "devnet" else self.env["rpc_url"]
+        self.node_poll, self.verifier_poll = ("8", "4") if cluster == "devnet" else ("1", "1")   # public devnet RPC is rate-limited
+        self.wait_sleep = 3.0 if cluster == "devnet" else 1.0
+        self.c = ChainClient(rpc_url=self.rpc_url)
         try:
             self.c.get_config()
         except ChainError as e:
-            raise DemoError(f"cannot reach the {cluster} chain at {self.env['rpc_url']} ({e.name}); run `scripts/setup.sh --cluster {cluster}`") from None
+            raise DemoError(f"cannot reach the {cluster} chain at {rpc_host(self.rpc_url)} ({e.name}); run `scripts/setup.sh --cluster {cluster}`") from None
         self.keys = self.env["keys"]
         self.tok = self.env["token_accounts"]
         self.steps, self.n = steps, 0
@@ -82,7 +86,7 @@ class Demo:
             if watch and time.time() - last_tick > 2:
                 watch()
                 last_tick = time.time()
-            time.sleep(1)
+            time.sleep(self.wait_sleep)
         raise DemoError(f"timed out waiting for {sorted(wanted)} (still {self.status(address)})")
 
     def create_request(self, seed: int, frames: int, occlusion: int, claim_duration=900, commit_duration=900, price=USDC) -> tuple[str, CreateRequestParams]:
@@ -94,7 +98,7 @@ class Demo:
     # ---- processes
     def spawn(self, name: str, args: list[str]) -> tuple[subprocess.Popen, Path]:
         log = self.out / f"{name}.log"
-        env = dict(os.environ, PORF_RPC_URL=self.env["rpc_url"], PYTHONUNBUFFERED="1")
+        env = dict(os.environ, PORF_RPC_URL=self.rpc_url, PYTHONUNBUFFERED="1")
         proc = subprocess.Popen([PY, "-m", *args], cwd=str(REPO_ROOT), env=env, stdout=open(log, "w"), stderr=subprocess.STDOUT)
         self.procs.append(proc)
         return proc, log
@@ -129,7 +133,7 @@ def run_job(cluster: str, mode: str | None, fraction: float | None, label: str) 
         d.say(f"seed {DEMO_SEED}, {DEMO_FRAMES} frames, {params.width}x{params.height}, occlusion {DEMO_OCCLUSION}")
         d.say(f"escrowed {usdc(view.escrow_amount)}; a node must stake {usdc(view.stake_amount)}; challenge window {params.challenge_window_secs} s")
 
-        node_args = ["porf.node.client", "--keypair", d.keys["node"], "--out", str(d.out / "node"), "--poll", "1", "--port", "0", "--only-request", address,
+        node_args = ["porf.node.client", "--keypair", d.keys["node"], "--out", str(d.out / "node"), "--poll", d.node_poll, "--port", "0", "--only-request", address,
                      "--announce-file", str(d.out / "reveal.json")]
         if mode:
             node_args += ["--cheat", mode, "--fraction", str(fraction if fraction is not None else cheats.DEFAULT_FRACTION)]
@@ -159,7 +163,7 @@ def run_job(cluster: str, mode: str | None, fraction: float | None, label: str) 
 
         d.step("The verifier draws a random sample from the chain's SlotHashes and re-checks those frames")
         reveal = json.loads((d.out / "reveal.json").read_text())["url"]
-        ver, ver_log = d.spawn("verifier", ["porf.verifier.client", "--keypair", d.keys["verifier"], "--out", str(d.out / "verifier"), "--poll", "1",
+        ver, ver_log = d.spawn("verifier", ["porf.verifier.client", "--keypair", d.keys["verifier"], "--out", str(d.out / "verifier"), "--poll", d.verifier_poll,
                                             "--only-request", address, "--reveal-url", reveal, "--once"])
         d.wait_status(address, {"Challenged", "Verified", "Paid", "Slashed"}, 120, proc=ver, log=ver_log)
         sub = d.c.get_submission(request=address)

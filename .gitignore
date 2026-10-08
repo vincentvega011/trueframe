@@ -33,3 +33,9 @@ keys/
 keys/
 .localnet/
 app/.env.local
+
+# devnet state (keys, buffer keypair, env with RPC choice) and local env files that may hold an RPC API key
+.devnet/
+app/.env.local
+app/.env.*.local
+app/dist-devnet

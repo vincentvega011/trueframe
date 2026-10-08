@@ -24,10 +24,41 @@ _TSX = CLI_DIR / "node_modules" / "tsx" / "dist" / "cli.mjs"
 _ENTRY = CLI_DIR / "src" / "cli.ts"
 
 
+DEVNET_PUBLIC_RPC = "https://api.devnet.solana.com"
+
+
+def devnet_rpc_url() -> str:
+    """The devnet RPC: $DEVNET_RPC_URL (a provider URL that may carry an API key) or the public endpoint."""
+    return os.environ.get("DEVNET_RPC_URL") or DEVNET_PUBLIC_RPC
+
+
+def rpc_host(url: str) -> str:
+    """Only the host of an RPC URL: safe to print (the path and query of a provider URL can hold an API key)."""
+    from urllib.parse import urlparse
+    return urlparse(url).netloc or "rpc"
+
+
+def redact(text: str) -> str:
+    """Replace any RPC URL known to this process (and its API key) with its host, so a key never reaches a log or a screen."""
+    for var in ("DEVNET_RPC_URL", "PORF_RPC_URL", "VITE_RPC_URL"):
+        url = os.environ.get(var)
+        if url and url not in (DEVNET_PUBLIC_RPC, "http://127.0.0.1:8899"):
+            text = text.replace(url, f"<{rpc_host(url)}>")
+            from urllib.parse import parse_qsl, urlparse
+            for _, v in parse_qsl(urlparse(url).query):
+                if len(v) >= 8:
+                    text = text.replace(v, "<key>")
+            tail = urlparse(url).path.strip("/").split("/")[-1]
+            if len(tail) >= 12:
+                text = text.replace(tail, "<key>")
+    return text
+
+
 class ChainError(Exception):
     """A failed chain call. `name` is the program/Anchor error name, e.g. "InvalidStatus"."""
 
     def __init__(self, name: str, message: str, code: int | None = None, logs: list[str] | None = None, kind: str = "other"):
+        message = redact(message)
         super().__init__(f"{name}: {message}")
         self.name, self.message, self.code, self.logs, self.kind = name, message, code, logs or [], kind
 

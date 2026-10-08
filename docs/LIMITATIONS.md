@@ -43,7 +43,7 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - Verifier-supplied blockhash fallback for sampling: **not used**. The SlotHashes sysvar is read on-chain, so the fallback (and its blockhash-grinding caveat) does not apply.
 
 ## Demo and devnet
-- **The devnet path of `scripts/setup.sh --cluster devnet` was written but not run** (it needs about 6 devnet SOL in the admin key, which the faucet rate-limits). Everything demonstrated and tested was on a local validator. The demo scripts' `--cluster devnet` option reads `.devnet/env.json` that script writes.
+- **Devnet was exercised, on a public endpoint.** `scripts/setup.sh --cluster devnet` deployed the program (373,416 bytes, `--max-len` 411000, so a future upgrade cannot exceed that size) and one honest and one `no_occlusion` run settled there (docs/PROTOCOL.md section 18.4). Nothing about devnet was run at scale: the public RPC rate-limits (HTTP 429) and the console retries; use a provider URL in `DEVNET_RPC_URL` and `app/.env.local` for anything longer. The program id `7jhn…vDLw` and the mock mint are now on devnet and are keyed by `keys/` on this machine.
 - The demos run the node and the verifier as processes on the same machine and pass the reveal URL through a file (the SHORTCUT above).
 - `timeout_refund` does not cover a request stuck in `Committed` (the verifier never opens a challenge); see the trusted-verifier entries.
 
@@ -54,6 +54,11 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - Frame pictures and reports come from the verifier machine's disk over HTTP (`--serve`); they are not stored anywhere durable and are not hashed or committed.
 - The console's refund button decides "past the deadline" from the chain's clock (latest block time), because the program judges deadlines by it and a local validator's clock can trail the wall clock. The amounts shown on a settled row are derived from the request's escrow and stake and the program's payout rules (PROTOCOL.md section 15), not measured from balances; the verifier's report (`outcome`) holds the measured values for Paid and Slashed.
 - The app is a three-view console, not a product: no routing library, no request history beyond what is on chain and on the verifier's disk, no node or verifier controls (they run in terminals).
+
+## Wallets and RPC (devnet)
+- **Phantom Connect (embedded Google/Apple wallets) is not implemented.** It needs an App ID from Phantom Portal, and as of 2026-10-08 the Portal states it "is not accepting new applications at this time". The wallet layer is written so it can be added later (`app/src/wallet.tsx`, `WalletKind` includes `"embedded"`). Phantom works today as a browser extension through the Wallet Standard adapter, and the extension must be in Testnet Mode (Settings, Developer Settings, Testnet Mode) to sign devnet transactions; the app shows that prompt but cannot detect the setting.
+- **An RPC provider key in `VITE_RPC_URL` ends up in the JavaScript the browser downloads**, because the browser talks to the RPC directly. That is acceptable for a local dev server with a free key and wrong for a deployed build; restrict the key by origin at the provider or proxy the RPC. The Python side keeps the URL out of logs and `env.json` (`porf.chain.client.redact`); the app shows only the host.
+- `scripts/fund_wallet.sh` and `scripts/setup.sh --cluster devnet` use the admin key from `keys/admin.json`, which never leaves this machine; devnet SOL is not real money but it is rate-limited at the faucet, so the budget in docs/ENV.md matters.
 
 ## Node
 - **The reveal server is plain HTTP with no authentication** and serves any committed job to anyone who can reach it.

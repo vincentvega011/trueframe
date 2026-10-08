@@ -3,7 +3,7 @@ import { AnchorProvider, BN, Program, type Idl } from "@anchor-lang/core";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Connection, PublicKey, SystemProgram, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import idlJson from "./idl/proof_of_render.json";
-import { CLUSTER, DEFAULTS, DEVNET_GENESIS, RPC_URL } from "./config";
+import { CLUSTER, DEFAULTS, DEVNET_GENESIS, RPC_HOST, RPC_URL } from "./config";
 import { explainError, type Explained } from "./errors";
 import { instructionFromLogs, type RequestView, type SubmissionView, type TxRecord } from "./timeline";
 
@@ -11,8 +11,12 @@ export const idl = idlJson as unknown as Idl;
 export const PROGRAM_ID = new PublicKey((idlJson as { address: string }).address);
 export const connection = new Connection(RPC_URL, "confirmed");
 
+/** "embedded" is reserved for Phantom Connect (Google/Apple sign-in). It is not implemented: Phantom Portal is not issuing new App IDs (docs/LIMITATIONS.md). */
+export type WalletKind = "burner" | "extension" | "embedded";
+
+/** Everything the rest of the app needs from a wallet. Views and chain code see only this, never a wallet library. */
 export interface AppWallet {
-  kind: "burner" | "extension";
+  kind: WalletKind;
   name: string;
   publicKey: PublicKey;
   signTransaction: (tx: Transaction) => Promise<Transaction>;
@@ -103,16 +107,27 @@ export async function getSubmission(request: string): Promise<SubmissionView | n
   };
 }
 
-/** Successful transactions that touched the request account, with the instruction each one ran. */
+const txCache = new Map<string, TxRecord>();
+
+/** Successful transactions that touched the request account, with the instruction each one ran. A confirmed transaction never
+ *  changes, so each one is fetched once: a poll costs one signatures call plus one call per NEW transaction (public devnet RPCs rate-limit). */
 export async function getTransactions(request: string): Promise<TxRecord[]> {
   const sigs = (await connection.getSignaturesForAddress(new PublicKey(request), { limit: 50 })).filter((s) => !s.err);
-  const txs = await Promise.all(sigs.map((s) => connection.getTransaction(s.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 })));
-  return sigs.map((s, i) => ({ signature: s.signature, slot: s.slot, blockTime: s.blockTime ?? txs[i]?.blockTime ?? null, instruction: instructionFromLogs(txs[i]?.meta?.logMessages) }));
+  const fresh = sigs.filter((s) => !txCache.has(s.signature));
+  // one at a time: six parallel calls at page load are enough to trip the public devnet rate limit
+  const fetched: Awaited<ReturnType<typeof connection.getTransaction>>[] = [];
+  for (const s of fresh) fetched.push(await connection.getTransaction(s.signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }));
+  fresh.forEach((s, i) => {
+    const tx = fetched[i];
+    if (tx) txCache.set(s.signature, { signature: s.signature, slot: s.slot, blockTime: s.blockTime ?? tx.blockTime ?? null, instruction: instructionFromLogs(tx.meta?.logMessages) });
+  });
+  return sigs.map((s) => txCache.get(s.signature)).filter((t): t is TxRecord => !!t);
 }
 
+let mintCache: PublicKey | null = null;
 export async function getMint(): Promise<PublicKey> {
-  const cfg = await accounts().config.fetch(seeds.config());
-  return cfg.mint as PublicKey;
+  if (!mintCache) mintCache = (await accounts().config.fetch(seeds.config())).mint as PublicKey;
+  return mintCache;
 }
 
 export async function getStakeBps(): Promise<number> {
@@ -133,10 +148,10 @@ export async function usdcBalance(owner: PublicKey): Promise<bigint | null> {
 export async function checkNetwork(): Promise<string | null> {
   try {
     const genesis = await connection.getGenesisHash();
-    if (CLUSTER === "devnet" && genesis !== DEVNET_GENESIS) return `Wrong network: this build talks to devnet, but ${RPC_URL} is a different cluster.`;
-    if (CLUSTER === "localnet" && genesis === DEVNET_GENESIS) return `Wrong network: this build expects a local validator, but ${RPC_URL} is devnet.`;
+    if (CLUSTER === "devnet" && genesis !== DEVNET_GENESIS) return `Wrong network: this build talks to devnet, but ${RPC_HOST} is a different cluster.`;
+    if (CLUSTER === "localnet" && genesis === DEVNET_GENESIS) return `Wrong network: this build expects a local validator, but ${RPC_HOST} is devnet.`;
     const info = await connection.getAccountInfo(PROGRAM_ID);
-    if (!info) return `The Proof-of-Render program is not deployed on ${RPC_URL}.`;
+    if (!info) return `The Proof-of-Render program is not deployed on ${RPC_HOST}.`;
     return null;
   } catch (e) {
     return explainError(e).message;

@@ -3,6 +3,11 @@ export type Cluster = "localnet" | "devnet";
 export const CLUSTER: Cluster = import.meta.env.VITE_CLUSTER === "devnet" ? "devnet" : "localnet";
 export const IS_LOCALNET = CLUSTER === "localnet";
 export const RPC_URL = import.meta.env.VITE_RPC_URL ?? (IS_LOCALNET ? "http://127.0.0.1:8899" : "https://api.devnet.solana.com");
+/** Only the host of the RPC: the full URL of a provider can carry an API key and must never be shown or logged. */
+export const RPC_HOST = (() => { try { return new URL(RPC_URL).host; } catch { return "rpc"; } })();
+/** How often the views read the chain. The public devnet RPC is rate-limited, so devnet polls gently; override with VITE_POLL_MS. */
+export const POLL_MS = Number(import.meta.env.VITE_POLL_MS) > 0 ? Number(import.meta.env.VITE_POLL_MS) : IS_LOCALNET ? 2000 : 5000;
+export const SLOW_POLL_MS = IS_LOCALNET ? 4000 : 20_000;
 export const REPORT_URL = (import.meta.env.VITE_REPORT_URL ?? "http://127.0.0.1:8788").replace(/\/$/, "");
 export const DEVNET_GENESIS = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 

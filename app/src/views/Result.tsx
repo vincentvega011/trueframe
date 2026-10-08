@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getRequest } from "../chain";
 import { explainFrame } from "../explain";
-import { REPORT_URL } from "../config";
+import { POLL_MS, REPORT_URL } from "../config";
 import { shortHash, usdc } from "../format";
 import { usePoll } from "../hooks";
 import { CHECK_LABELS, fetchReport, imageUrl, type FrameReport, type Report } from "../report";
@@ -119,7 +119,7 @@ function Detail({ request, frame }: { request: string; frame: FrameReport }) {
 }
 
 export function ResultView({ address, go }: { address: string; go: (to: string) => void }) {
-  const chain = usePoll(async () => (address ? getRequest(address) : null), 2000, [address]);
+  const chain = usePoll(async () => (address ? getRequest(address) : null), POLL_MS, [address]);
   const status = chain.value?.status ?? null;
   const rep = usePoll(async () => (address ? fetchReport(address) : null), 1500, [address], (r) => r?.kind === "ok" && !!r.report.outcome);
   const report = rep.value?.kind === "ok" ? rep.value.report : null;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { checkNetwork } from "./chain";
-import { CLUSTER, RPC_URL } from "./config";
+import { CLUSTER, RPC_HOST, SLOW_POLL_MS } from "./config";
 import { useHashRoute, usePoll } from "./hooks";
 import { Notice } from "./ui/bits";
 import { WalletRoot, useAppWallet } from "./wallet";
@@ -47,7 +47,7 @@ function Shell() {
   const [last, setLastState] = useState(getLast);
   const address = addrFromRoute || last;
   useEffect(() => { if (addrFromRoute) { setLast(addrFromRoute); setLastState(addrFromRoute); } }, [addrFromRoute]);
-  const net = usePoll(checkNetwork, 10_000, []);
+  const net = usePoll(checkNetwork, SLOW_POLL_MS * 2, []);
 
   const nav = [
     { id: "create", label: "Create request", to: "/create" },
@@ -68,7 +68,7 @@ function Shell() {
           ))}
         </nav>
         <div className="railfoot">
-          <div className="cluster"><span className={`dot ${net.value ? "bad" : "ok"}`} /> {CLUSTER}<div className="mono dim small">{RPC_URL.replace(/^https?:\/\//, "")}</div></div>
+          <div className="cluster"><span className={`dot ${net.value ? "bad" : "ok"}`} /> {CLUSTER}<div className="mono dim small">{RPC_HOST}</div></div>
           <WalletChip />
         </div>
       </aside>

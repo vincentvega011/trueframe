@@ -1,6 +1,7 @@
 import { chainClockOffset, getRequest, getSubmission, getTransactions, TxError, timeoutRefund } from "../chain";
 import { useState } from "react";
 import { explainError } from "../errors";
+import { POLL_MS, SLOW_POLL_MS } from "../config";
 import { clock, shortHash, usdc } from "../format";
 import { useNow, usePoll } from "../hooks";
 import { deriveTimeline, refundable, TERMINAL, type Step } from "../timeline";
@@ -69,7 +70,7 @@ function RefundPanel({ kind, request, onDone }: { kind: "unclaimed" | "uncommitt
 
 export function TimelineView({ address, go }: { address: string; go: (to: string) => void }) {
   const wall = useNow();
-  const offset = usePoll(chainClockOffset, 3000, []);
+  const offset = usePoll(chainClockOffset, SLOW_POLL_MS, []);
   const now = wall + (offset.value ?? 0);   // the chain's clock: the program judges deadlines by it
   const data = usePoll(async () => {
     if (!address) return null;
@@ -77,7 +78,7 @@ export function TimelineView({ address, go }: { address: string; go: (to: string
     if (!request) return { missing: true as const };
     const [submission, txs] = await Promise.all([getSubmission(address), getTransactions(address)]);
     return { missing: false as const, request, submission, txs };
-  }, 2000, [address]);
+  }, POLL_MS, [address]);
 
   const v = data.value;
   return (

@@ -4,6 +4,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { AppWallet } from "./chain";
 import { IS_LOCALNET } from "./config";
 
+// How wallets plug in. The views and chain.ts only ever see `AppWallet` (publicKey + signTransaction). A wallet SOURCE is anything that
+// can list options and turn one into an AppWallet: today the localnet dev wallet (burner.ts) and the Wallet Standard extensions
+// (Phantom, Solflare, ...) through wallet-adapter. To add Phantom Connect's embedded wallet later (needs an App ID from Phantom Portal):
+//   1. add a source that wraps `@phantom/react-sdk` (`PhantomProvider` around <Inner>, `usePhantom`, `solana.signTransaction`);
+//   2. return its options from `options` below with kind "embedded", and its AppWallet from `connect`;
+//   3. nothing else changes: transactions are built and sent by chain.ts either way.
 interface WalletCtx {
   wallet: AppWallet | null;
   /** Wallets the person can pick: the dev wallet on localnet, then whatever extensions are installed. */
