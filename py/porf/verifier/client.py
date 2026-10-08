@@ -21,6 +21,8 @@ import numpy as np
 
 from ..chain.client import ChainClient, ChainError, Request, Submission
 from ..render.runner import find_blender, render_seg_only
+from ..scene.generator import generate_scene
+from .artifacts import save_frame_images
 from .checks import DEFAULT_THRESHOLDS, SeenImages, Thresholds, VerifyContext, run_checks
 from .report import CHECKED, NOT_CHECKED, UNAVAILABLE, FrameResult, decide, load_report, write_report
 from .reveal import DEFAULT_ATTEMPTS, DEFAULT_PAUSE, DEFAULT_TIMEOUT, Reveal, RevealUnavailable, discover_reveal_url, fetch_reveal
@@ -193,6 +195,10 @@ class Verifier:
         t = time.time()
         frames = [FrameResult(i, CHECKED, run_checks(rv, i, ctx)) for i, rv in fetched] + tail
         timing["checks_s"] = time.time() - t
+        for (i, rv), fr in zip(fetched, frames):   # pictures for the report viewer; built after the checks, never read by them
+            scene = generate_scene(req.seed, i, req.occlusion_level, req.width, req.height)
+            seg_failed = any(c.name == "seg_rerender" and not c.passed for c in fr.checks)
+            fr.images = save_frame_images(self.report_dir(address), i, rv, scene, (reference or {}).get(i), seg_failed, self.cfg.thresholds)
         verdict, reasons = decide(frames)
 
         rep = self._report(address, req)
@@ -279,11 +285,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--poll", type=float, default=2.0)
     ap.add_argument("--only-request", help="verify only this request address")
     ap.add_argument("--reveal-url", help="the node's reveal server (default: PORF_REVEAL_URL or .localnet/reveal.json)")
+    ap.add_argument("--serve", nargs="?", const=8788, type=int, metavar="PORT", help="also serve the reports and images over HTTP for the UI (default port 8788)")
     ap.add_argument("--once", action="store_true", help="work until the targeted requests are settled, then exit")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = VerifierConfig(keypair=args.keypair, out_dir=Path(args.out), poll_interval=args.poll, only_request=args.only_request, reveal_url=args.reveal_url)
     verifier = Verifier(cfg)
+    if args.serve:
+        from .serve import ReportServer
+        ReportServer(Path(args.out), port=args.serve).start()
     try:
         if args.once:
             verifier.run_until_settled()

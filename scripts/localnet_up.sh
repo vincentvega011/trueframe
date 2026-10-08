@@ -49,7 +49,7 @@ elif healthy; then
 fi
 mkdir -p "$STATE"
 PROGRAM_ID="$("$PY" -c "import json;print(json.load(open('$ROOT/target/idl/proof_of_render.json'))['address'])")"
-nohup solana-test-validator --reset --quiet --ledger "$STATE/ledger" --rpc-port "$RPC_PORT" \
+nohup solana-test-validator --reset --quiet --ledger "$STATE/ledger" --limit-ledger-size 100000000 --rpc-port "$RPC_PORT" \
   --upgradeable-program "$PROGRAM_ID" "$SO" "$(keypub admin)" > "$STATE/validator.log" 2>&1 &
 echo $! > "$STATE/validator.pid"
 for i in $(seq 1 120); do healthy && break; sleep 1; [ "$i" = 120 ] && { echo "validator did not become healthy; see $STATE/validator.log" >&2; exit 1; }; done

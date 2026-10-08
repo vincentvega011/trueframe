@@ -1,0 +1,37 @@
+{
+  "name": "porf-app",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Proof-of-Render console: create request, status timeline, challenge result",
+  "scripts": {
+    "predev": "node scripts/sync-idl.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/sync-idl.mjs",
+    "build": "tsc --noEmit && vite build",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "shots": "node scripts/screenshots.mjs"
+  },
+  "dependencies": {
+    "@anchor-lang/core": "1.1.2",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
+    "@solana/spl-token": "0.4.15",
+    "@solana/wallet-adapter-base": "0.9.28",
+    "@solana/wallet-adapter-react": "0.15.40",
+    "@solana/web3.js": "1.99.0",
+    "buffer": "6.0.3",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "5.2.0",
+    "playwright": "1.55.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.7",
+    "vitest": "3.2.7"
+  }
+}

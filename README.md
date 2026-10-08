@@ -9,6 +9,9 @@ Verifiable synthetic training data on Solana. A requester escrows (test) USDC fo
 - `docs/ENV.md` — pinned versions and how to activate them
 - `docs/LIMITATIONS.md` — everything this does not do
 
+## Console (`app/`)
+A three-view React console (create request, status timeline, challenge result) over the same program. `cd app && npm ci && npm run dev`, with a local validator (`scripts/setup.sh`), a node (`python -m porf.node.client --keypair keys/node.json`) and the verifier with its report server (`python -m porf.verifier.client --keypair keys/verifier.json --serve`). On localnet the app signs with a dev wallet (see `docs/LIMITATIONS.md`); `VITE_CLUSTER=devnet` builds without it. Versions and env: `docs/ENV.md`.
+
 ## Prior work
 None. (The Anchor project template from `anchor init` was used as the starting point for `programs/proof-of-render` and `Anchor.toml`.)
 

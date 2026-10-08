@@ -47,6 +47,14 @@ Plain statements of what this prototype does not do. Every `SHORTCUT:` marker in
 - The demos run the node and the verifier as processes on the same machine and pass the reveal URL through a file (the SHORTCUT above).
 - `timeout_refund` does not cover a request stuck in `Committed` (the verifier never opens a challenge); see the trusted-verifier entries.
 
+## Console (`app/`)
+- **SHORTCUT: the localnet "dev wallet".** Browser wallets do not connect to a local validator reliably, so on localnet the app signs with `keys/requester.json`, which the Vite dev server hands out at `/__dev/requester-key` (only under `npm run dev` with `VITE_CLUSTER=localnet`). `app/src/burner.ts` is imported behind a build-time cluster check, and `app/scripts/check-devnet-bundle.sh` fails if a devnet build contains it. A real wallet extension can still be chosen on localnet if it is configured for the local validator.
+- The wallet-extension path (devnet) was not exercised in a real extension; it uses the standard wallet-adapter and the same transaction code as the dev wallet.
+- "Wrong network" is detected by comparing the RPC's genesis hash and the program's presence with the build's cluster; the app cannot read which network a wallet extension is set to.
+- Frame pictures and reports come from the verifier machine's disk over HTTP (`--serve`); they are not stored anywhere durable and are not hashed or committed.
+- The console's refund button decides "past the deadline" from the chain's clock (latest block time), because the program judges deadlines by it and a local validator's clock can trail the wall clock. The amounts shown on a settled row are derived from the request's escrow and stake and the program's payout rules (PROTOCOL.md section 15), not measured from balances; the verifier's report (`outcome`) holds the measured values for Paid and Slashed.
+- The app is a three-view console, not a product: no routing library, no request history beyond what is on chain and on the verifier's disk, no node or verifier controls (they run in terminals).
+
 ## Node
 - **The reveal server is plain HTTP with no authentication** and serves any committed job to anyone who can reach it.
 - **One job at a time**, and a crash during rendering discards the half-finished batch (no per-frame resume).

@@ -23,6 +23,7 @@ class FrameResult:
     status: str
     checks: list[CheckResult] = field(default_factory=list)
     reason: str | None = None
+    images: dict[str, str] = field(default_factory=dict)   # name -> path under the report dir (artifacts.py); presentation only
 
     @property
     def passed(self) -> bool:
@@ -32,6 +33,8 @@ class FrameResult:
         d: dict[str, Any] = {"index": self.index, "status": self.status, "passed": self.passed, "checks": [c.to_dict() for c in self.checks]}
         if self.reason:
             d["reason"] = self.reason
+        if self.images:
+            d["images"] = self.images
         return d
 
 

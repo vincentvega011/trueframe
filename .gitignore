@@ -32,3 +32,4 @@ keys/
 # dev keypairs and local validator state
 keys/
 .localnet/
+app/.env.local

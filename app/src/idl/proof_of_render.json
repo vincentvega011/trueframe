@@ -1,0 +1,1558 @@
+{
+  "address": "7jhnpAu8H9rtDhEyXRmFCicjGLUepXoafE4SiE7EvDLw",
+  "metadata": {
+    "name": "proof_of_render",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "create_request",
+      "discriminator": [
+        219,
+        191,
+        93,
+        237,
+        18,
+        44,
+        42,
+        84
+      ],
+      "accounts": [
+        {
+          "name": "requester",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "request",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "requester"
+              },
+              {
+                "kind": "arg",
+                "path": "params.request_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "docs": [
+            "Escrow vault. The Request PDA is its authority."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_vault",
+          "docs": [
+            "Stake vault (empty until `stake_and_claim`). The Request PDA is its authority."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "requester_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "CreateRequestParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "finalize_payout",
+      "discriminator": [
+        80,
+        105,
+        227,
+        22,
+        73,
+        169,
+        249,
+        67
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Anyone may finalize; the signer only pays the fee."
+          ],
+          "signer": true
+        },
+        {
+          "name": "request",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.requester",
+                "account": "Request"
+              },
+              {
+                "kind": "account",
+                "path": "request.request_id",
+                "account": "Request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "submission",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  98,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "node_token",
+          "docs": [
+            "Must belong to the node that claimed the request."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_config",
+      "discriminator": [
+        23,
+        235,
+        115,
+        232,
+        168,
+        96,
+        1,
+        231
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "verifier",
+          "type": "pubkey"
+        },
+        {
+          "name": "stake_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "open_challenge",
+      "discriminator": [
+        56,
+        176,
+        3,
+        12,
+        28,
+        205,
+        10,
+        5
+      ],
+      "accounts": [
+        {
+          "name": "verifier",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "request",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.requester",
+                "account": "Request"
+              },
+              {
+                "kind": "account",
+                "path": "request.request_id",
+                "account": "Request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "submission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  98,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "slot_hashes",
+          "docs": [
+            "(deserializing the whole sysvar is not supported on-chain and would be wasteful)."
+          ],
+          "address": "SysvarS1otHashes111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "slash_and_refund",
+      "discriminator": [
+        237,
+        95,
+        40,
+        226,
+        207,
+        100,
+        18,
+        52
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Anyone may slash once the verdict is `Fail`; the signer only pays the fee."
+          ],
+          "signer": true
+        },
+        {
+          "name": "request",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.requester",
+                "account": "Request"
+              },
+              {
+                "kind": "account",
+                "path": "request.request_id",
+                "account": "Request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "submission",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  98,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "requester_token",
+          "docs": [
+            "Must belong to the requester: the node's stake is slashed to the requester as well (no treasury)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "stake_and_claim",
+      "discriminator": [
+        81,
+        50,
+        200,
+        153,
+        78,
+        240,
+        146,
+        52
+      ],
+      "accounts": [
+        {
+          "name": "node",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "request",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.requester",
+                "account": "Request"
+              },
+              {
+                "kind": "account",
+                "path": "request.request_id",
+                "account": "Request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "node_token",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "submit_commitment",
+      "discriminator": [
+        48,
+        171,
+        16,
+        125,
+        219,
+        133,
+        58,
+        87
+      ],
+      "accounts": [
+        {
+          "name": "node",
+          "docs": [
+            "Must be the node that claimed the request. Pays the Submission's rent."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "request",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.requester",
+                "account": "Request"
+              },
+              {
+                "kind": "account",
+                "path": "request.request_id",
+                "account": "Request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "submission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  98,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "merkle_root",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "frame_count",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "submit_verdict",
+      "discriminator": [
+        138,
+        102,
+        56,
+        22,
+        229,
+        130,
+        105,
+        118
+      ],
+      "accounts": [
+        {
+          "name": "verifier",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "request",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.requester",
+                "account": "Request"
+              },
+              {
+                "kind": "account",
+                "path": "request.request_id",
+                "account": "Request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "submission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  117,
+                  98,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "verdict",
+          "type": {
+            "defined": {
+              "name": "Verdict"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "timeout_refund",
+      "discriminator": [
+        194,
+        205,
+        141,
+        37,
+        231,
+        118,
+        147,
+        9
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Anyone may call once the deadline has passed; the signer only pays the fee."
+          ],
+          "signer": true
+        },
+        {
+          "name": "request",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  113,
+                  117,
+                  101,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request.requester",
+                "account": "Request"
+              },
+              {
+                "kind": "account",
+                "path": "request.request_id",
+                "account": "Request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "request"
+              }
+            ]
+          }
+        },
+        {
+          "name": "requester_token",
+          "docs": [
+            "Must belong to the requester."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "Request",
+      "discriminator": [
+        125,
+        172,
+        150,
+        161,
+        162,
+        115,
+        39,
+        71
+      ]
+    },
+    {
+      "name": "Submission",
+      "discriminator": [
+        58,
+        194,
+        159,
+        158,
+        75,
+        102,
+        178,
+        197
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidStakeBps",
+      "msg": "stake_bps must be between 1 and 10000"
+    },
+    {
+      "code": 6001,
+      "name": "ZeroFrames",
+      "msg": "num_frames must be at least 1"
+    },
+    {
+      "code": 6002,
+      "name": "TooManyFrames",
+      "msg": "num_frames exceeds the maximum of 1024"
+    },
+    {
+      "code": 6003,
+      "name": "ZeroPrice",
+      "msg": "price_per_frame must be greater than zero"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidDuration",
+      "msg": "all durations must be greater than zero"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidOcclusionLevel",
+      "msg": "occlusion_level must be 0..=3"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidSceneType",
+      "msg": "only scene_type 0 (warehouse_v1) is supported"
+    },
+    {
+      "code": 6007,
+      "name": "InvalidResolution",
+      "msg": "width and height must be at least 1"
+    },
+    {
+      "code": 6008,
+      "name": "ResolutionTooLarge",
+      "msg": "width and height must not exceed 4096"
+    },
+    {
+      "code": 6009,
+      "name": "ZeroStake",
+      "msg": "computed stake rounds down to zero"
+    },
+    {
+      "code": 6010,
+      "name": "MathOverflow",
+      "msg": "arithmetic overflow"
+    },
+    {
+      "code": 6011,
+      "name": "WrongMint",
+      "msg": "mint account does not match the configured mint"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidStatus",
+      "msg": "request is not in the status required by this instruction"
+    },
+    {
+      "code": 6013,
+      "name": "UnauthorizedVerifier",
+      "msg": "signer is not the configured verifier"
+    },
+    {
+      "code": 6014,
+      "name": "UnauthorizedNode",
+      "msg": "signer is not the node that claimed this request"
+    },
+    {
+      "code": 6015,
+      "name": "ClaimDeadlinePassed",
+      "msg": "claim deadline has passed"
+    },
+    {
+      "code": 6016,
+      "name": "CommitDeadlinePassed",
+      "msg": "commit deadline has passed"
+    },
+    {
+      "code": 6017,
+      "name": "DeadlineNotReached",
+      "msg": "deadline has not been reached yet"
+    },
+    {
+      "code": 6018,
+      "name": "ChallengeWindowOpen",
+      "msg": "challenge window has not ended yet"
+    },
+    {
+      "code": 6019,
+      "name": "ChallengeWindowClosed",
+      "msg": "challenge window has ended"
+    },
+    {
+      "code": 6020,
+      "name": "FrameCountMismatch",
+      "msg": "frame_count does not equal the request's num_frames"
+    },
+    {
+      "code": 6021,
+      "name": "ZeroMerkleRoot",
+      "msg": "merkle_root must not be all zeros"
+    },
+    {
+      "code": 6022,
+      "name": "SlotHashesUnavailable",
+      "msg": "SlotHashes sysvar is empty or malformed"
+    },
+    {
+      "code": 6023,
+      "name": "SlotHashNotNewer",
+      "msg": "most recent slot hash is not newer than the commit slot"
+    },
+    {
+      "code": 6024,
+      "name": "VerdictAlreadySet",
+      "msg": "a verdict has already been recorded"
+    },
+    {
+      "code": 6025,
+      "name": "InvalidVerdict",
+      "msg": "Pending is not a verdict; submit Pass or Fail"
+    },
+    {
+      "code": 6026,
+      "name": "VerdictNotFail",
+      "msg": "slash requires a Fail verdict"
+    },
+    {
+      "code": 6027,
+      "name": "VerdictIsFail",
+      "msg": "payout is not allowed after a Fail verdict"
+    }
+  ],
+  "types": [
+    {
+      "name": "Config",
+      "docs": [
+        "PDA [\"config\"]. Singleton created by `init_config`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "verifier",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_bps",
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreateRequestParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "request_id",
+            "type": "u64"
+          },
+          {
+            "name": "scene_type",
+            "type": "u8"
+          },
+          {
+            "name": "seed",
+            "type": "u64"
+          },
+          {
+            "name": "num_frames",
+            "type": "u32"
+          },
+          {
+            "name": "width",
+            "type": "u16"
+          },
+          {
+            "name": "height",
+            "type": "u16"
+          },
+          {
+            "name": "occlusion_level",
+            "type": "u8"
+          },
+          {
+            "name": "price_per_frame",
+            "type": "u64"
+          },
+          {
+            "name": "claim_duration",
+            "type": "i64"
+          },
+          {
+            "name": "commit_duration",
+            "type": "i64"
+          },
+          {
+            "name": "challenge_window_secs",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Request",
+      "docs": [
+        "PDA [\"request\", requester, request_id_le]. Also the authority of the escrow and stake vaults."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "requester",
+            "type": "pubkey"
+          },
+          {
+            "name": "request_id",
+            "type": "u64"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "scene_type",
+            "type": "u8"
+          },
+          {
+            "name": "seed",
+            "type": "u64"
+          },
+          {
+            "name": "num_frames",
+            "type": "u32"
+          },
+          {
+            "name": "width",
+            "type": "u16"
+          },
+          {
+            "name": "height",
+            "type": "u16"
+          },
+          {
+            "name": "occlusion_level",
+            "type": "u8"
+          },
+          {
+            "name": "price_per_frame",
+            "type": "u64"
+          },
+          {
+            "name": "escrow_amount",
+            "type": "u64"
+          },
+          {
+            "name": "stake_amount",
+            "type": "u64"
+          },
+          {
+            "name": "claim_duration",
+            "type": "i64"
+          },
+          {
+            "name": "commit_duration",
+            "type": "i64"
+          },
+          {
+            "name": "challenge_window_secs",
+            "type": "i64"
+          },
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "RequestStatus"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "claimed_at",
+            "type": "i64"
+          },
+          {
+            "name": "claim_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "commit_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "challenge_window_end",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RequestStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "Claimed"
+          },
+          {
+            "name": "Committed"
+          },
+          {
+            "name": "Challenged"
+          },
+          {
+            "name": "Verified"
+          },
+          {
+            "name": "Paid"
+          },
+          {
+            "name": "Slashed"
+          },
+          {
+            "name": "Expired"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Submission",
+      "docs": [
+        "PDA [\"submission\", request]. Created by `submit_commitment`; the sample fields are filled by `open_challenge`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "request",
+            "type": "pubkey"
+          },
+          {
+            "name": "node",
+            "type": "pubkey"
+          },
+          {
+            "name": "merkle_root",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "frame_count",
+            "type": "u32"
+          },
+          {
+            "name": "commit_slot",
+            "type": "u64"
+          },
+          {
+            "name": "sample_seed",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "sample_slot",
+            "docs": [
+              "Slot of the SlotHashes entry that fed `sample_seed` (0 until `open_challenge`), so anyone can audit the seed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "sample_count",
+            "type": "u8"
+          },
+          {
+            "name": "verdict",
+            "type": {
+              "defined": {
+                "name": "Verdict"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Verdict",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Pass"
+          },
+          {
+            "name": "Fail"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "BPS_DENOMINATOR",
+      "type": "u64",
+      "value": "10000"
+    },
+    {
+      "name": "CONFIG_SEED",
+      "type": "bytes",
+      "value": "[99, 111, 110, 102, 105, 103]"
+    },
+    {
+      "name": "ESCROW_SEED",
+      "type": "bytes",
+      "value": "[101, 115, 99, 114, 111, 119]"
+    },
+    {
+      "name": "MAX_FRAMES",
+      "type": "u32",
+      "value": "1024"
+    },
+    {
+      "name": "MAX_OCCLUSION_LEVEL",
+      "type": "u8",
+      "value": "3"
+    },
+    {
+      "name": "MAX_RESOLUTION",
+      "type": "u16",
+      "value": "4096"
+    },
+    {
+      "name": "REQUEST_SEED",
+      "type": "bytes",
+      "value": "[114, 101, 113, 117, 101, 115, 116]"
+    },
+    {
+      "name": "SAMPLE_DRAWN",
+      "type": "u8",
+      "value": "5"
+    },
+    {
+      "name": "SAMPLE_EDGE_THRESHOLD",
+      "type": "u32",
+      "value": "7"
+    },
+    {
+      "name": "SCENE_WAREHOUSE_V1",
+      "type": "u8",
+      "value": "0"
+    },
+    {
+      "name": "STAKE_SEED",
+      "type": "bytes",
+      "value": "[115, 116, 97, 107, 101]"
+    },
+    {
+      "name": "SUBMISSION_SEED",
+      "type": "bytes",
+      "value": "[115, 117, 98, 109, 105, 115, 115, 105, 111, 110]"
+    }
+  ]
+}
