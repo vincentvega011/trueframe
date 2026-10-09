@@ -485,6 +485,8 @@ A 200 body for `/frame/<i>`:
   "proof": [{"sibling_hash": "<64 hex>", "sibling_is_left": true}, ...],
   "scene": { ...scene.json as a JSON object... },
   "annotations": { ...annotations.json as a JSON object... },
+  "scene_json": "<scene.json, the exact file text>",
+  "annotations_json": "<annotations.json, the exact file text>",
   "rgb_png": "<base64 of rgb.png>",
   "seg_png": "<base64 of seg.png>",
   "depth_png": "<base64 of depth.png, or null>"
@@ -494,6 +496,20 @@ A 200 body for `/frame/<i>`:
 **Proof encoding:** `proof` is the Merkle proof of §4, leaf level first, one object per level: `sibling_hash` is 64 lowercase hex characters, `sibling_is_left` a JSON boolean. `porf.merkle.proof_to_json` / `proof_from_json` implement it; the decoder rejects anything malformed (wrong length, upper case, non-hex, non-boolean side, extra keys). `scene` and `annotations` are the parsed files; they are canonical JSON on disk, so `hash_json(object)` equals the hash of the file bytes. Everything else is hashed from the decoded base64 bytes.
 
 **What is committed versus what is served:** `leaf`, `proof` and `merkle_root` come from `leaves.json` (what was committed); `scene`, `annotations` and the PNGs are read from disk at request time. If a file was changed after the commit, the node serves it anyway (and logs a warning) and the verifier's hash comparison (§7 check 3) rejects it; the node neither repairs nor hides the difference. To verify a frame: recompute the four hashes from the served content, rebuild the leaf with `frame_index`, and run `merkle.verify_frame` against the **on-chain** root and `frame_count` (never the root in the response).
+
+**Exact text for browsers.** `scene_json` and `annotations_json` are the files as stored (canonical JSON, section 2), so `sha256(utf8(scene_json))` is the committed `scene_hash`. A client that cannot reproduce Python's canonical float formatting must hash these strings, not `JSON.stringify` of the parsed objects (`1.0` becomes `1` in JavaScript and the hash changes). The verifier ignores the two fields. **CORS:** every response carries `Access-Control-Allow-Origin: *` and `OPTIONS` answers 204 (`GET, OPTIONS` only); the server is read-only.
+
+### 16.6 Verified dataset download (console)
+
+On a `Paid` request the console's Result view offers "Download dataset" (`Slashed`: disabled with the reason; other statuses: nothing). For each frame `0..frame_count-1` the browser fetches the body above, then, with WebCrypto SHA-256 (`app/src/verify.ts`):
+1. hashes `scene_json`, `annotations_json` and the decoded `rgb_png` and `seg_png` as served;
+2. rebuilds the leaf of section 4.1 from those four hashes and `frame_index` (never from the `leaf` fields in the body, which are only used to name the file that changed);
+3. checks `frame_index < frame_count`, proof length `ceil(log2 frame_count)` and that the position implied by `sibling_is_left` equals `frame_index` (section 4);
+4. folds the proof and compares the result with the `merkle_root` of the `Submission` account, read from the chain when the button is pressed; `frame_count` comes from the `Request` account. The `merkle_root` field of the body is not read.
+
+A frame that fails any step is rejected with the reason and left out of the zip; the rest are still saved. The zip, named `trueframe_<first 8 characters of the request address>.zip`, holds `frame_<i>/{rgb.png, seg.png, annotations.json, scene.json}` (the bytes that were hashed) and `manifest.json`: `request`, `cluster`, `merkle_root`, `frame_count`, `complete`, `verified_frames`, `sampled_frames` (the verifier's sample from its report, or `null`), a `verification` note, and per frame `frame_index`, `leaf_hash`, `verified` and `reason`.
+
+**Frame sources** (`app/src/frames.ts`): live, the node's reveal server, `GET <VITE_REVEAL_URL>/frame/<i>?request=<address>` (default `http://127.0.0.1:8787`; the node must be started with `--port 8787`, since `--port 0` is announced through a file a browser cannot read); static, `VITE_FRAMES_URL` set, one file `<base>/<i>.json` per frame in the same shape as the live body (used by the explorer build). Cross-checks: `py/tests/test_ts_fixture.py` writes `app/src/__fixtures__/frames.json` with the Python merkle module (5 frames, odd count) and the TS tests verify every frame in it; the worked example of section 4.2 and the reference vectors are reproduced in `app/src/verify.test.ts`.
 
 ### 16.5 Finding the node (SHORTCUT)
 

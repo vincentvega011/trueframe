@@ -1,0 +1,161 @@
+{
+ "frame_count": 5,
+ "frames": [
+  {
+   "annotations_json": "{\"objects\":[{\"bbox\":[0,0,5,5],\"instance_id\":1,\"visibility\":1.0}]}",
+   "frame_count": 5,
+   "frame_index": 0,
+   "leaf": {
+    "annotation_hash": "ecfc8bfc28a11c75038814ce07b5e33cad8ab135153af5df5cf77c5d6051ddd1",
+    "frame_index": 0,
+    "image_hash": "ed17ef80a0d5864627c63249f9a95214611973eeda819e7dd1722bd8aa4c07ee",
+    "leaf_hash": "83b24a74f8c651d8cabe29c5e89899d3b260f8f026e5be722077fa6a003e6d6f",
+    "scene_hash": "25205f9a1552284487c35a2cfbcf4f60b534172145e8b941457180a2fa9d765c",
+    "seg_hash": "8107e08b6f08f9184bb5ca86109ab685175608e39e134ff5e7b141705c49b8e8"
+   },
+   "proof": [
+    {
+     "sibling_hash": "6276e669f1fbfa3fadda3dec13f6503e45eebb7ea2a5ad552149a8f7b5d6a1a5",
+     "sibling_is_left": false
+    },
+    {
+     "sibling_hash": "4cd2d7f46508a2b5e3166b159a623a6cd1ad37788caddb1aece977324089d80c",
+     "sibling_is_left": false
+    },
+    {
+     "sibling_hash": "a30b3a34ba03603207e0a58a0730971e4480afe8c751ca88c8ab05bb2edd78c0",
+     "sibling_is_left": false
+    }
+   ],
+   "request": "FixtureRequest",
+   "rgb_png": "iVBOR3JnYgAAAAAAAAA=",
+   "scene_json": "{\"frame_index\":0,\"objects\":[{\"id\":1,\"name\":\"caf\\u00e9\",\"x\":2.5,\"yaw\":1.0}],\"seed\":42}",
+   "seg_png": "iVBOR3NlZ/////////8="
+  },
+  {
+   "annotations_json": "{\"objects\":[{\"bbox\":[1,1,6,6],\"instance_id\":1,\"visibility\":1.0}]}",
+   "frame_count": 5,
+   "frame_index": 1,
+   "leaf": {
+    "annotation_hash": "3c7fbe36333b8961e2c590f50e03cdf4dc1622697759f2775dae63865b4f9b68",
+    "frame_index": 1,
+    "image_hash": "c7915360cd940a12285f095ab8e7fafe1508b41d93eb271158d1fe730edfba60",
+    "leaf_hash": "6276e669f1fbfa3fadda3dec13f6503e45eebb7ea2a5ad552149a8f7b5d6a1a5",
+    "scene_hash": "e2d091b8e6d80ccb0c7c1dbae11dd749ff4fddeb79d28ec1c1b9254568ea0bff",
+    "seg_hash": "4ec82e258237e218b9fbc88f87c1dc2a0cac2788f7ba4a999a7799f3616f81dc"
+   },
+   "proof": [
+    {
+     "sibling_hash": "83b24a74f8c651d8cabe29c5e89899d3b260f8f026e5be722077fa6a003e6d6f",
+     "sibling_is_left": true
+    },
+    {
+     "sibling_hash": "4cd2d7f46508a2b5e3166b159a623a6cd1ad37788caddb1aece977324089d80c",
+     "sibling_is_left": false
+    },
+    {
+     "sibling_hash": "a30b3a34ba03603207e0a58a0730971e4480afe8c751ca88c8ab05bb2edd78c0",
+     "sibling_is_left": false
+    }
+   ],
+   "request": "FixtureRequest",
+   "rgb_png": "iVBOR3JnYgEBAQEBAQE=",
+   "scene_json": "{\"frame_index\":1,\"objects\":[{\"id\":1,\"name\":\"caf\\u00e9\",\"x\":3.5,\"yaw\":1.0}],\"seed\":42}",
+   "seg_png": "iVBOR3NlZ/7+/v7+/v4="
+  },
+  {
+   "annotations_json": "{\"objects\":[{\"bbox\":[2,2,7,7],\"instance_id\":1,\"visibility\":1.0}]}",
+   "frame_count": 5,
+   "frame_index": 2,
+   "leaf": {
+    "annotation_hash": "0ca71abe7b87c3977a732f2b8d1b55775cc77669bf39a50d9e1598a3ea65d608",
+    "frame_index": 2,
+    "image_hash": "eda81b9a05143144ad598fa80ada50491bcd0f17d6e03e3f1657d79f39af07a5",
+    "leaf_hash": "b4fbcfbd6e8fdaeeb0decb23ac66cf472aece8c05763f419b15c785e08bb9d8f",
+    "scene_hash": "b0083a8d30bbf80be63dd02ebcf736ff53f0073de865f1e30957b0d9e17d5607",
+    "seg_hash": "8ee9c29651a4b1be0ef1b63d6d8a777a287374c0d57c5566785f8f91addb5275"
+   },
+   "proof": [
+    {
+     "sibling_hash": "cffe875cfe3cd3be75ab0a6f79a26c80c95591a87fb096aa24c91ed0ffc7ac6c",
+     "sibling_is_left": false
+    },
+    {
+     "sibling_hash": "4496a1ba5b4e75c4089aca31ae71890aa91598e87e5dab8a25a7cbc94fb12e19",
+     "sibling_is_left": true
+    },
+    {
+     "sibling_hash": "a30b3a34ba03603207e0a58a0730971e4480afe8c751ca88c8ab05bb2edd78c0",
+     "sibling_is_left": false
+    }
+   ],
+   "request": "FixtureRequest",
+   "rgb_png": "iVBOR3JnYgICAgICAgI=",
+   "scene_json": "{\"frame_index\":2,\"objects\":[{\"id\":1,\"name\":\"caf\\u00e9\",\"x\":4.5,\"yaw\":1.0}],\"seed\":42}",
+   "seg_png": "iVBOR3NlZ/39/f39/f0="
+  },
+  {
+   "annotations_json": "{\"objects\":[{\"bbox\":[3,3,8,8],\"instance_id\":1,\"visibility\":1.0}]}",
+   "frame_count": 5,
+   "frame_index": 3,
+   "leaf": {
+    "annotation_hash": "a2bc074e8040212789ed99ed4e1e5a61409594d0da41812d619eb3a36d695efb",
+    "frame_index": 3,
+    "image_hash": "b87923feab3f6e68d7fb49808d3c5b38a1a1b3cb8770db6d5d746adf01501a74",
+    "leaf_hash": "cffe875cfe3cd3be75ab0a6f79a26c80c95591a87fb096aa24c91ed0ffc7ac6c",
+    "scene_hash": "1fe281573d5594ac9273e5cd61660e922c66ea78826a64bbe3171d03f5f5bca6",
+    "seg_hash": "03db1febe03003828a784d6e5a5b61bba6795fa96b1524d7121c6fea3a1eec2a"
+   },
+   "proof": [
+    {
+     "sibling_hash": "b4fbcfbd6e8fdaeeb0decb23ac66cf472aece8c05763f419b15c785e08bb9d8f",
+     "sibling_is_left": true
+    },
+    {
+     "sibling_hash": "4496a1ba5b4e75c4089aca31ae71890aa91598e87e5dab8a25a7cbc94fb12e19",
+     "sibling_is_left": true
+    },
+    {
+     "sibling_hash": "a30b3a34ba03603207e0a58a0730971e4480afe8c751ca88c8ab05bb2edd78c0",
+     "sibling_is_left": false
+    }
+   ],
+   "request": "FixtureRequest",
+   "rgb_png": "iVBOR3JnYgMDAwMDAwM=",
+   "scene_json": "{\"frame_index\":3,\"objects\":[{\"id\":1,\"name\":\"caf\\u00e9\",\"x\":5.5,\"yaw\":1.0}],\"seed\":42}",
+   "seg_png": "iVBOR3NlZ/z8/Pz8/Pw="
+  },
+  {
+   "annotations_json": "{\"objects\":[{\"bbox\":[4,4,9,9],\"instance_id\":1,\"visibility\":1.0}]}",
+   "frame_count": 5,
+   "frame_index": 4,
+   "leaf": {
+    "annotation_hash": "8c2ae64059f0d3d0029e8eb0ab4eb1895718825a17066479fe6fbd7d609903d0",
+    "frame_index": 4,
+    "image_hash": "2bb1a3f7e90251e754ccdc55d8656e00ab11bed7592264f9e47cb21ce459580d",
+    "leaf_hash": "49d4e956d432955e37e0098d02a4fd9cf3e134054cff52c3378644efe199c3df",
+    "scene_hash": "fc76cbd802183fb5fbfcaa463e2f02526708610bc0fdbcf97310488fcb5a17f0",
+    "seg_hash": "803c3670544aaf30446c8733fd6fe3f1d8c46ae9e288245fe49eefbc12c49dd0"
+   },
+   "proof": [
+    {
+     "sibling_hash": "49d4e956d432955e37e0098d02a4fd9cf3e134054cff52c3378644efe199c3df",
+     "sibling_is_left": false
+    },
+    {
+     "sibling_hash": "bef1ce88a4d22f9ed365c5e9f5a180995891560fe60acf42f6dd5256c6b6581a",
+     "sibling_is_left": false
+    },
+    {
+     "sibling_hash": "a47f35ba1a4556dc98d2140a588557139ab4dfb822d54263859d68d215e42f91",
+     "sibling_is_left": true
+    }
+   ],
+   "request": "FixtureRequest",
+   "rgb_png": "iVBOR3JnYgQEBAQEBAQ=",
+   "scene_json": "{\"frame_index\":4,\"objects\":[{\"id\":1,\"name\":\"caf\\u00e9\",\"x\":6.5,\"yaw\":1.0}],\"seed\":42}",
+   "seg_png": "iVBOR3NlZ/v7+/v7+/s="
+  }
+ ],
+ "merkle_root": "db4d64c48a39c77e63021b9fd1f94015d845ab6db9cff17442b7b8b08cc3d7c0"
+}

@@ -42,8 +42,17 @@ class RevealServer:
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
+                self.send_header("Access-Control-Allow-Origin", "*")   # read-only; the console downloads frames from the browser
                 self.end_headers()
                 self.wfile.write(data)
+
+            def do_OPTIONS(self):
+                self.send_response(204)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "*")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
 
             def do_GET(self):
                 url = urlparse(self.path)

@@ -203,3 +203,18 @@ input:focus { border-color: var(--text); }
 .timing summary { cursor: pointer; font-weight: 500; }
 .timingfields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 14px 0 8px; }
 .timingfields input { font-size: 1rem; }
+
+/* dataset download (Result view) */
+.dataset { display: flex; flex-direction: column; gap: 12px; }
+.dataset h2 { margin: 0; }
+.dlrow { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.dlrow p { margin: 0; max-width: 62ch; }
+.dlprogress { display: flex; flex-direction: column; gap: 10px; }
+.dlcount { font-size: 1.05rem; }
+.dlgrid { display: flex; gap: 4px; flex-wrap: wrap; }
+.dl { width: 22px; height: 10px; border-radius: 2px; background: var(--panel-2); border: 1px solid var(--rule); }
+.dl.fetching { background: var(--wait-bg); border-color: var(--wait); }
+.dl.verified { background: var(--pass); border-color: var(--pass); }
+.dl.rejected { background: var(--fail); border-color: var(--fail); }
+.dlrejects { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; color: var(--fail); }
+.dlsaved { margin: 0; color: var(--pass); }

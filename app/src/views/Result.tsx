@@ -6,6 +6,7 @@ import { shortHash, usdc } from "../format";
 import { usePoll } from "../hooks";
 import { CHECK_LABELS, fetchReport, imageUrl, type FrameReport, type Report } from "../report";
 import { Hash, Mark, Mono, Notice, TxLink, Waiting } from "../ui/bits";
+import { DownloadPanel } from "./Download";
 import { RequestPicker } from "./RequestPicker";
 
 const WAITING: Record<string, string> = {
@@ -149,6 +150,7 @@ export function ResultView({ address, go }: { address: string; go: (to: string) 
           <span className="dim">frames</span><Mono>{report.sample.indices.join(", ")}</Mono>
         </div>
       )}
+      {address && <DownloadPanel request={chain.value ?? null} sampled={report?.sample?.indices ?? null} />}
       {frames.length > 0 && <Strip request={address} frames={frames} selected={selected} onSelect={setPick} />}
       {frame && <Detail request={address} frame={frame} />}
       {report?.verdict_reasons && report.verdict_reasons.length > 0 && (

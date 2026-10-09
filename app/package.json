@@ -24,6 +24,7 @@
     "@solana/wallet-adapter-react": "0.15.40",
     "@solana/web3.js": "1.99.0",
     "buffer": "6.0.3",
+    "fflate": "0.8.2",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },

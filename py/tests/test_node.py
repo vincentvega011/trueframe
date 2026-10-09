@@ -90,9 +90,13 @@ def test_reveal_payload_verifies_for_every_frame_and_every_count(tmp_path):
         for i in range(n):
             p = reveal_payload(job, i)
             assert p["frame_index"] == i and p["frame_count"] == n and p["merkle_root"] == root.hex()
-            assert set(p) == {"request", "frame_index", "frame_count", "merkle_root", "leaf", "proof", "scene", "annotations", "rgb_png", "seg_png", "depth_png"}
+            assert set(p) == {"request", "frame_index", "frame_count", "merkle_root", "leaf", "proof", "scene", "annotations", "scene_json", "annotations_json", "rgb_png", "seg_png", "depth_png"}
             assert verify_payload(p, root, n), (n, i)
             assert base64.b64decode(p["depth_png"]).startswith(b"Adepth")
+            # the raw file text hashes to the committed fields exactly as served (this is what a browser hashes)
+            assert hashlib.sha256(p["scene_json"].encode()).hexdigest() == p["leaf"]["scene_hash"]
+            assert hashlib.sha256(p["annotations_json"].encode()).hexdigest() == p["leaf"]["annotation_hash"]
+            assert json.loads(p["scene_json"]) == p["scene"] and json.loads(p["annotations_json"]) == p["annotations"]
 
 
 def test_reveal_rejects_out_of_range_indexes(tmp_path):
@@ -146,6 +150,22 @@ def test_server_serves_committed_frames_and_404s_the_rest(tmp_path):
 
         status, health = get(srv.url + "/health")
         assert (status, health) == (200, {"ok": True, "committed": ["ReqAddr1"]})
+    finally:
+        srv.stop()
+
+
+def test_server_allows_cross_origin_reads_only(tmp_path):
+    make_job(tmp_path, n=2, state="committed")
+    srv = RevealServer(tmp_path, port=0).start()
+    try:
+        with urllib.request.urlopen(srv.url + "/frame/1") as r:
+            assert r.headers["Access-Control-Allow-Origin"] == "*"
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(srv.url + "/frame/9")
+        assert e.value.code == 404 and e.value.headers["Access-Control-Allow-Origin"] == "*"
+        pre = urllib.request.Request(srv.url + "/frame/1", method="OPTIONS")
+        with urllib.request.urlopen(pre) as r:
+            assert r.status == 204 and r.headers["Access-Control-Allow-Methods"] == "GET, OPTIONS"
     finally:
         srv.stop()
 

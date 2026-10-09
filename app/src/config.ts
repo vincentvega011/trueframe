@@ -25,3 +25,8 @@ export function txUrl(sig: string): string {
     ? `https://explorer.solana.com/tx/${sig}?cluster=custom&customUrl=${encodeURIComponent(RPC_URL)}`
     : `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 }
+
+/** The node's reveal server, where the dataset download fetches frames (docs/PROTOCOL.md section 16.4). */
+export const REVEAL_URL = (import.meta.env.VITE_REVEAL_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
+/** If set, frames are read from a static folder of <i>.json files instead (the explorer build). */
+export const FRAMES_URL = (import.meta.env.VITE_FRAMES_URL ?? "").replace(/\/$/, "");

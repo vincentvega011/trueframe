@@ -192,6 +192,10 @@ def reveal_payload(job: Job, index: int) -> dict[str, Any]:
         "proof": proof_to_json(proof),
         "scene": scene,
         "annotations": annotations,
+        # the exact bytes of the two JSON files (what the leaf hashes cover), so a client that cannot reproduce Python's
+        # canonical float formatting (a browser) can hash them as served
+        "scene_json": (d / "scene.json").read_text(encoding="utf-8"),
+        "annotations_json": (d / "annotations.json").read_text(encoding="utf-8"),
         "rgb_png": base64.b64encode(rgb).decode("ascii"),
         "seg_png": base64.b64encode(seg).decode("ascii"),
         "depth_png": _b64(d / "depth.png"),
