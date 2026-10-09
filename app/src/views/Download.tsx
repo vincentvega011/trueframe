@@ -1,17 +1,20 @@
 import { useRef, useState } from "react";
-import { getSubmission, type RequestAccount } from "../chain";
-import { CLUSTER } from "../config";
+import { getSubmission } from "../chain";
+import { fetchSnapshot, snapshotDate, type RequestData } from "../explorer";
+import { CLUSTER, EXPLORER } from "../config";
 import { runDownload, saveZip, zipName, type FrameState } from "../download";
 import { defaultSource } from "../frames";
 import { Mono, Notice } from "../ui/bits";
 
 /** Result view, below the verdict. Paid: download the dataset, every frame checked in the browser against the on-chain root.
  *  Slashed: disabled with the reason. Any other status: nothing. */
-export function DownloadPanel({ request, sampled }: { request: RequestAccount | null; sampled: number[] | null }) {
+export function DownloadPanel({ data, sampled }: { data: RequestData | null; sampled: number[] | null }) {
+  const request = data?.request ?? null;
   const [frames, setFrames] = useState<FrameState[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [snapshotRoot, setSnapshotRoot] = useState<number | null>(null);   // set when the root came from the build-time snapshot
   const abort = useRef<AbortController | null>(null);
 
   if (!request) return null;
@@ -31,9 +34,13 @@ export function DownloadPanel({ request, sampled }: { request: RequestAccount | 
     abort.current = new AbortController();
     try {
       if (!globalThis.crypto?.subtle) throw new Error("This page cannot compute SHA-256. Open the console at http://localhost or over https.");
-      const sub = await getSubmission(request.address); // the root is read now, from the chain
+      // the root is read now, from the chain; the explorer falls back to its snapshot when devnet cannot serve it
+      let sub = await getSubmission(request.address).catch(() => null);
+      let fromSnapshot: number | null = null;
+      if (!sub && EXPLORER && data?.submission) { sub = data.submission; fromSnapshot = data.accountsFromSnapshot ?? (await fetchSnapshot(request.address))?.taken_at ?? null; }
       if (!sub) throw new Error("The commitment for this request was not found on chain.");
-      const r = await runDownload({ request: request.address, cluster: CLUSTER, root: sub.merkleRoot, frameCount: request.numFrames, source: defaultSource(request.address), sampled, signal: abort.current.signal, onProgress: setFrames });
+      setSnapshotRoot(fromSnapshot);
+      const r = await runDownload({ request: request.address, cluster: CLUSTER, root: sub.merkleRoot, frameCount: request.numFrames, source: defaultSource(request.address), sampled, rootSource: fromSnapshot ? `snapshot taken ${snapshotDate(fromSnapshot)}` : undefined, signal: abort.current.signal, onProgress: setFrames });
       if (r.zip) { saveZip(r.zip, zipName(request.address)); setSaved(zipName(request.address)); }
     } catch (e) {
       if (!(e instanceof DOMException && e.name === "AbortError")) setError(e instanceof Error ? e.message : String(e));
@@ -67,7 +74,7 @@ export function DownloadPanel({ request, sampled }: { request: RequestAccount | 
               {rejected.map((f) => <li key={f.index}><Mono>frame {f.index}</Mono> rejected: {f.reason}</li>)}
             </ul>
           )}
-          {finished && saved && <p className={rejected.length === 0 ? "dlsaved" : "dim"}>{rejected.length === 0 ? <>Saved <Mono>{saved}</Mono>. Every frame matches the Merkle root on chain.</> : <>Saved <Mono>{saved}</Mono> with the {verified} frames that passed; the rejected frames are not in it.</>}</p>}
+          {finished && saved && <p className={rejected.length === 0 ? "dlsaved" : "dim"}>{rejected.length === 0 ? <>Saved <Mono>{saved}</Mono>. {snapshotRoot ? <>Every frame matches the Merkle root in the snapshot taken on {snapshotDate(snapshotRoot)}; devnet no longer serves the live account.</> : "Every frame matches the Merkle root on chain."}</> : <>Saved <Mono>{saved}</Mono> with the {verified} frames that passed; the rejected frames are not in it.</>}</p>}
           {finished && !saved && <p className="dim">Nothing was saved: no frame passed.</p>}
         </div>
       )}

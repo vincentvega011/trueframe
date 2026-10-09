@@ -25,11 +25,18 @@ function devKey(): Plugin {
 }
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, __dirname, "VITE_");
+  const explorer = mode === "explorer";
+  // The explorer build reads only env-explorer/ (never app/.env.local) and blanks every URL variable, so no provider key
+  // from the shell or a file can end up in what is published.
+  const envDir = explorer ? resolve(__dirname, "env-explorer") : __dirname;
+  const env = loadEnv(mode, envDir, "VITE_");
   const cluster = env.VITE_CLUSTER ?? "localnet";
+  const blank = Object.fromEntries(["VITE_RPC_URL", "VITE_REPORT_URL", "VITE_REVEAL_URL", "VITE_FRAMES_URL", "VITE_POLL_MS"].map((k) => [`import.meta.env.${k}`, "undefined"]));
   return {
+    envDir,
+    base: explorer ? "./" : "/",
     plugins: [react(), ...(cluster === "localnet" ? [devKey()] : [])],
-    define: { global: "globalThis" },
+    define: { global: "globalThis", ...(explorer ? blank : {}) },
     server: { port: 5173, host: "127.0.0.1" },
     test: { environment: "node", include: ["src/**/*.test.ts"] },
   };

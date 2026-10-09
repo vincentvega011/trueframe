@@ -1,7 +1,9 @@
-import { chainClockOffset, getRequest, getSubmission, getTransactions, TxError, timeoutRefund } from "../chain";
+import { chainClockOffset, TxError, timeoutRefund } from "../chain";
+import { isMissing, loadRequest } from "../explorer";
+import { SnapshotNotice } from "../ui/snapshot";
 import { useState } from "react";
 import { explainError } from "../errors";
-import { POLL_MS, SLOW_POLL_MS } from "../config";
+import { EXPLORER, POLL_MS, SLOW_POLL_MS } from "../config";
 import { clock, shortHash, usdc } from "../format";
 import { useNow, usePoll } from "../hooks";
 import { deriveTimeline, refundable, TERMINAL, type Step } from "../timeline";
@@ -72,25 +74,23 @@ export function TimelineView({ address, go }: { address: string; go: (to: string
   const wall = useNow();
   const offset = usePoll(chainClockOffset, SLOW_POLL_MS, []);
   const now = wall + (offset.value ?? 0);   // the chain's clock: the program judges deadlines by it
-  const data = usePoll(async () => {
-    if (!address) return null;
-    const request = await getRequest(address);
-    if (!request) return { missing: true as const };
-    const [submission, txs] = await Promise.all([getSubmission(address), getTransactions(address)]);
-    return { missing: false as const, request, submission, txs };
-  }, POLL_MS, [address]);
+  // Explorer: a settled request never changes, so once it has been read live the polling stops.
+  const data = usePoll(async () => (address ? loadRequest(address, { txs: true }) : null), POLL_MS, [address],
+    (d) => EXPLORER && !!d && !isMissing(d) && d.accountsFromSnapshot === null && d.txsFromSnapshot === null && d.txs.length > 0 && TERMINAL.includes(d.request.status));
 
-  const v = data.value;
+  const v = data.value && !isMissing(data.value) ? data.value : null;
+  const missing = isMissing(data.value);
   return (
     <div className="view">
       <header className="viewhead">
         <h1>Status timeline</h1>
         <RequestPicker address={address} onPick={(a) => go(`/timeline/${a}`)} />
       </header>
-      {!address && <Notice tone="info" title="No request selected">Create a request first, or pick one above.</Notice>}
+      {!address && <Notice tone="info" title="No request selected">{EXPLORER ? "Pick a request above." : "Create a request first, or pick one above."}</Notice>}
       {data.error != null && !v && <Notice tone="fail" title="Could not read the chain">{String((data.error as Error).message ?? data.error)}</Notice>}
-      {v && v.missing && <Notice tone="fail" title="Request not found">No request account exists at {address} on this cluster.</Notice>}
-      {v && !v.missing && (
+      {missing && <Notice tone="fail" title="Request not found">No request account exists at {address} on this cluster.</Notice>}
+      <SnapshotNotice data={v} />
+      {v && (
         <>
           <div className="timelinegrid">
             <ol className="timeline">
@@ -109,7 +109,7 @@ export function TimelineView({ address, go }: { address: string; go: (to: string
               </dl>
             </aside>
           </div>
-          {(() => { const k = refundable(v.request, now - 1); return k ? <RefundPanel kind={k} request={v.request} onDone={data.reload} /> : null; })()}
+          {(() => { const k = EXPLORER ? null : refundable(v.request, now - 1); return k ? <RefundPanel kind={k} request={v.request} onDone={data.reload} /> : null; })()}
           <div className="actions">
             {(v.request.status === "Challenged" || v.request.status === "Verified" || (TERMINAL.includes(v.request.status) && v.submission)) && (
               <button className="btn" onClick={() => go(`/result/${address}`)}>Open the challenge result</button>

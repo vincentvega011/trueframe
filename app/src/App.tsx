@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { checkNetwork } from "./chain";
-import { CLUSTER, RPC_HOST, SLOW_POLL_MS } from "./config";
+import { CLUSTER, EXPLORER, EXPLORER_REQUESTS, PROGRAM_ADDRESS, RPC_HOST, SLOW_POLL_MS } from "./config";
 import { useHashRoute, usePoll } from "./hooks";
 import { Notice } from "./ui/bits";
 import { WalletRoot, useAppWallet } from "./wallet";
@@ -41,16 +41,28 @@ function WalletChip() {
   );
 }
 
+function ExplorerBanner() {
+  return (
+    <div className="exbanner" role="note">
+      <span>TrueFrame is live on Solana devnet. These are real runs: click any transaction to verify it on Solana Explorer.</span>
+      <a href={`https://explorer.solana.com/address/${PROGRAM_ADDRESS}?cluster=devnet`} target="_blank" rel="noreferrer">Program <span className="mono">{shortHash(PROGRAM_ADDRESS, 4, 4)}</span> on Solana Explorer</a>
+    </div>
+  );
+}
+
 function Shell() {
   const [route, go] = useHashRoute();
-  const [, view, addrFromRoute] = route.split("/");
+  const [, routeView, addrFromRoute] = route.split("/");
+  const view = EXPLORER && routeView !== "result" ? "timeline" : routeView;
   const [last, setLastState] = useState(getLast);
-  const address = addrFromRoute || last;
+  const known = (a: string) => EXPLORER_REQUESTS.some((r) => r.address === a);
+  // the explorer shows two fixed requests and opens on the cheating one
+  const address = EXPLORER ? (known(addrFromRoute) ? addrFromRoute : known(last) ? last : EXPLORER_REQUESTS[0].address) : addrFromRoute || last;
   useEffect(() => { if (addrFromRoute) { setLast(addrFromRoute); setLastState(addrFromRoute); } }, [addrFromRoute]);
-  const net = usePoll(checkNetwork, SLOW_POLL_MS * 2, []);
+  const net = usePoll(EXPLORER ? async () => null : checkNetwork, SLOW_POLL_MS * 2, []);
 
   const nav = [
-    { id: "create", label: "Create request", to: "/create" },
+    ...(EXPLORER ? [] : [{ id: "create", label: "Create request", to: "/create" }]),
     { id: "timeline", label: "Status timeline", to: address ? `/timeline/${address}` : "/timeline" },
     { id: "result", label: "Challenge result", to: address ? `/result/${address}` : "/result" },
   ];
@@ -69,13 +81,15 @@ function Shell() {
         </nav>
         <div className="railfoot">
           <div className="cluster"><span className={`dot ${net.value ? "bad" : "ok"}`} /> {CLUSTER}<div className="mono dim small">{RPC_HOST}</div></div>
-          <WalletChip />
+          {!EXPLORER && <WalletChip />}
         </div>
       </aside>
       <main className="main">
+        {EXPLORER && <ExplorerBanner />}
         {net.value && <Notice tone="fail" title="Network problem">{net.value}</Notice>}
         {view === "timeline" ? <TimelineView address={address} go={go} />
           : view === "result" ? <ResultView address={address} go={go} />
+          : EXPLORER ? <TimelineView address={address} go={go} />
           : <CreateView go={go} />}
       </main>
     </div>
@@ -83,5 +97,5 @@ function Shell() {
 }
 
 export function App() {
-  return <WalletRoot><Shell /></WalletRoot>;
+  return EXPLORER ? <Shell /> : <WalletRoot><Shell /></WalletRoot>;
 }

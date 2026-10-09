@@ -1,4 +1,4 @@
-import { USDC_DECIMALS } from "./config";
+import { USDC_DECIMALS } from "./constants";
 
 export function usdc(baseUnits: number | bigint | string): string {
   const n = BigInt(baseUnits);

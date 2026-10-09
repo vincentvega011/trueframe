@@ -39,3 +39,4 @@ app/.env.local
 app/.env.local
 app/.env.*.local
 app/dist-devnet
+app/dist-explorer

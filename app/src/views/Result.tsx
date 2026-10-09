@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { getRequest } from "../chain";
+import { isMissing, loadRequest } from "../explorer";
+import { SnapshotNotice } from "../ui/snapshot";
 import { explainFrame } from "../explain";
-import { POLL_MS, REPORT_URL } from "../config";
+import { EXPLORER, POLL_MS, REPORT_URL } from "../config";
+import { TERMINAL } from "../timeline";
 import { shortHash, usdc } from "../format";
 import { usePoll } from "../hooks";
 import { CHECK_LABELS, fetchReport, imageUrl, type FrameReport, type Report } from "../report";
@@ -120,14 +122,17 @@ function Detail({ request, frame }: { request: string; frame: FrameReport }) {
 }
 
 export function ResultView({ address, go }: { address: string; go: (to: string) => void }) {
-  const chain = usePoll(async () => (address ? getRequest(address) : null), POLL_MS, [address]);
-  const status = chain.value?.status ?? null;
+  const chain = usePoll(async () => (address ? loadRequest(address, { txs: false }) : null), POLL_MS, [address],
+    (d) => EXPLORER && !!d && !isMissing(d) && d.accountsFromSnapshot === null && TERMINAL.includes(d.request.status));
+  const data = chain.value && !isMissing(chain.value) ? chain.value : null;
+  const status = data?.request.status ?? null;
   const rep = usePoll(async () => (address ? fetchReport(address) : null), 1500, [address], (r) => r?.kind === "ok" && !!r.report.outcome);
   const report = rep.value?.kind === "ok" ? rep.value.report : null;
   const frames = report?.frames ?? [];
   const firstBad = frames.find((f) => !f.passed)?.index;
   const [pick, setPick] = useState<number | null>(null);
-  useEffect(() => setPick(null), [address]);
+  const [reasonsOpen, setReasonsOpen] = useState(false);
+  useEffect(() => { setPick(null); setReasonsOpen(false); }, [address]);
   const selected = pick ?? firstBad ?? frames[0]?.index ?? -1;
   const frame = frames.find((f) => f.index === selected);
   const gone = rep.value?.kind === "unreachable";
@@ -138,7 +143,8 @@ export function ResultView({ address, go }: { address: string; go: (to: string) 
         <h1>Challenge result</h1>
         <RequestPicker address={address} onPick={(a) => go(`/result/${a}`)} />
       </header>
-      {!address && <Notice tone="info" title="No request selected">Create a request first, or pick one above.</Notice>}
+      {!address && <Notice tone="info" title="No request selected">{EXPLORER ? "Pick a request above." : "Create a request first, or pick one above."}</Notice>}
+      <SnapshotNotice data={data} />
       {address && <Verdict report={report} status={status} />}
       {gone && <Notice tone="wait" title="Can't reach the report server">Start the verifier with <Mono>--serve</Mono> (it listens on {REPORT_URL}). {rep.value?.kind === "unreachable" && rep.value.reason}</Notice>}
       {rep.value?.kind === "missing" && address && !["Open", "Claimed"].includes(status ?? "") && <Notice tone="wait" title="No verifier report yet">The verifier has not written a report for this request. Reports of finished requests stay on disk, so they appear again when the report server is running.</Notice>}
@@ -150,11 +156,15 @@ export function ResultView({ address, go }: { address: string; go: (to: string) 
           <span className="dim">frames</span><Mono>{report.sample.indices.join(", ")}</Mono>
         </div>
       )}
-      {address && <DownloadPanel request={chain.value ?? null} sampled={report?.sample?.indices ?? null} />}
+      {address && <DownloadPanel data={data} sampled={report?.sample?.indices ?? null} />}
       {frames.length > 0 && <Strip request={address} frames={frames} selected={selected} onSelect={setPick} />}
       {frame && <Detail request={address} frame={frame} />}
       {report?.verdict_reasons && report.verdict_reasons.length > 0 && (
-        <section className="reasons"><h2>Why it failed</h2><ul>{report.verdict_reasons.map((r) => <li key={r}>{r}</li>)}</ul></section>
+        <details className="reasons" key={address} onToggle={(e) => setReasonsOpen(e.currentTarget.open)}>
+          <summary>{reasonsOpen ? "Hide technical details" : "Show technical details"}</summary>
+          <h2>Why it failed</h2>
+          <ul>{report.verdict_reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+        </details>
       )}
       {report?.transactions && Object.keys(report.transactions).length > 0 && (
         <section className="txs"><h2>Transactions</h2>

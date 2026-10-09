@@ -82,3 +82,22 @@ Anchor's `.rpc()` wraps on-chain failures in the `SendTransactionError` form tha
 `scripts/setup.sh --cluster devnet` (admin key needs about 4.3 SOL at the peak of the first deploy, about 2.1 SOL of it stays locked as rent): `solana program write-buffer` into a buffer (keypair in `.devnet/`, resumable), then `solana program deploy --buffer ... --program-id <keypair> --max-len 411000` (the CLI default of twice the size would need about 5.7 SOL), then 0.1 SOL each to node, verifier and requester, the mock mint, token accounts with 1000 mock USDC, `init_config`. `--reclaim` closes leftover buffers and returns their SOL. Measured on 2026-10-08: peak need about 3.99 SOL (buffer 1.90, program data 2.09, program account 0.0008, fees 0.002), balance afterwards 2.61 SOL of the 5 SOL (deploy 2.09 plus 0.3 funding), a deploy of about 57 s on the public RPC.
 RPC: `DEVNET_RPC_URL` (shell, read by the scripts and Python) and `VITE_RPC_URL` in `app/.env.local` (read by the UI); both fall back to `https://api.devnet.solana.com`. Neither is written to a committed file or to `.devnet/env.json`.
 Scripts: `scripts/fund_wallet.sh <address> [--sol 0.2] [--usdc 1000] [--cluster devnet]`, `scripts/demo_honest.sh --cluster devnet`, `scripts/demo_cheat.sh --mode no_occlusion --cluster devnet`, `scripts/devnet_node.sh`, `scripts/devnet_verifier.sh`. UI: `cd app && npm run dev:devnet` (mode `devnet`, `app/.env.devnet`), `npm run build:devnet` (to `dist-devnet`). Poll intervals on devnet: node 8 s, verifier 4 s, console 5 s (`VITE_POLL_MS`), request list 20 s; transactions are fetched once each and cached.
+
+## Explorer build (read-only site for judges)
+
+A static site, `app/dist-explorer`, that shows the two real devnet runs (docs/PROTOCOL.md section 18.4) with nothing running on this machine: the cheating node's slashed request (opens first) and the honest node's paid request, whose 20 frames can be downloaded and verified in the browser against the on-chain root. No Create view, no wallet, no refund button. The timeline and result read the public devnet RPC (`https://api.devnet.solana.com`, fixed; `VITE_RPC_URL` and `app/.env.local` are not read by this build). If devnet no longer serves an account the page falls back to a snapshot taken at build time and says so.
+
+**Build** (needs `out/devnet/` from the devnet runs on this machine; nothing is deployed):
+```
+scripts/build_explorer.sh              # app build, reports + frames, snapshots, security check; prints size and file count
+scripts/test-explorer-check.sh         # optional: plants secrets in a copy and requires the check to fail
+```
+`DEVNET_RPC_URL` (if set) is used only for the snapshot and the frame check and is never written to the output. Snapshot, frames and reports are fixed at build time: rebuild only if you want a newer snapshot date.
+
+**Serve locally:** `python3 -m http.server 5180 -d app/dist-explorer` and open http://127.0.0.1:5180/. The site uses hash routes (`#/timeline/<address>`) and relative asset paths, so it needs no rewrite rules and works from the root of a host or from a sub-folder.
+
+**Deploy (run by you; not run by the build):**
+- **Cloudflare Pages, drag and drop:** dashboard, Workers & Pages, Create, Pages, "Upload assets", name the project, drag the `app/dist-explorer` folder in, Deploy. Limits: 25 MiB per file (the largest file here is under 1 MB) and 20,000 files.
+- **Cloudflare Pages, CLI:** `npx wrangler login` then `npx wrangler pages deploy app/dist-explorer --project-name trueframe-explorer`.
+- **Vercel, CLI:** `npx vercel login`, then `npx vercel deploy app/dist-explorer --prod` and accept the prompts (framework "Other", no build command, output directory `.`). Vercel's dashboard imports from a git repository; deploying a folder is done with the CLI.
+Then open the URL, check the green banner, the Explorer links and the 20 of 20 download.

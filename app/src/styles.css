@@ -218,3 +218,12 @@ input:focus { border-color: var(--text); }
 .dl.rejected { background: var(--fail); border-color: var(--fail); }
 .dlrejects { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; color: var(--fail); }
 .dlsaved { margin: 0; color: var(--pass); }
+
+/* explorer build */
+.exbanner { display: flex; justify-content: space-between; gap: 16px 32px; flex-wrap: wrap; align-items: baseline; padding: 14px 20px; margin-bottom: 8px; border: 1px solid var(--rule); border-left: 4px solid var(--pass); border-radius: 4px; background: var(--pass-bg); }
+.exbanner a { color: var(--text); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+
+/* technical details toggle (Result view) */
+.reasons summary { cursor: pointer; width: fit-content; color: var(--dim); font-size: 0.9rem; padding: 4px 0; }
+.reasons summary:hover { color: var(--text); }
+.reasons[open] summary { margin-bottom: 8px; }

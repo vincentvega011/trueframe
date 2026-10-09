@@ -15,6 +15,7 @@ export interface DownloadParams {
   frameCount: number;      // from the Request account
   source: FrameSource;
   sampled: number[] | null; // the verifier's sample, when its report is available
+  rootSource?: string;      // where the root came from when not the live chain, e.g. "snapshot taken 2026-10-09"
   concurrency?: number;
   signal?: AbortSignal;
   onProgress?: (frames: FrameState[]) => void;
@@ -24,6 +25,7 @@ export interface Manifest {
   request: string;
   cluster: string;
   merkle_root: string;
+  merkle_root_source: string;
   frame_count: number;
   complete: boolean;
   verified_frames: number;
@@ -75,6 +77,7 @@ export async function runDownload(p: DownloadParams): Promise<DownloadResult> {
     request: p.request,
     cluster: p.cluster,
     merkle_root: p.root,
+    merkle_root_source: p.rootSource ?? "live chain",
     frame_count: p.frameCount,
     complete: verified === p.frameCount,
     verified_frames: verified,

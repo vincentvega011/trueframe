@@ -5,7 +5,8 @@ import { Connection, PublicKey, SystemProgram, Transaction, type TransactionInst
 import idlJson from "./idl/proof_of_render.json";
 import { CLUSTER, DEFAULTS, DEVNET_GENESIS, RPC_HOST, RPC_URL } from "./config";
 import { explainError, type Explained } from "./errors";
-import { instructionFromLogs, type RequestView, type SubmissionView, type TxRecord } from "./timeline";
+import { toRequest, toSubmission, type RequestAccount } from "./decode";
+import { instructionFromLogs, type SubmissionView, type TxRecord } from "./timeline";
 
 export const idl = idlJson as unknown as Idl;
 export const PROGRAM_ID = new PublicKey((idlJson as { address: string }).address);
@@ -31,6 +32,7 @@ const seeds = {
   submission: (request: PublicKey) => PublicKey.findProgramAddressSync([new TextEncoder().encode("submission"), request.toBytes()], PROGRAM_ID)[0],
 };
 export const pdas = seeds;
+export type { RequestAccount };
 
 /** A read-only program handle (no wallet needed to look at accounts). */
 function readProgram(): Program {
@@ -39,48 +41,6 @@ function readProgram(): Program {
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const accounts = () => readProgram().account as any;
-
-const num = (v: { toNumber(): number }) => v.toNumber();
-const hex = (b: number[] | Uint8Array) => Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("");
-
-export interface RequestAccount extends RequestView {
-  address: string;
-  requester: string;
-  requestId: string;
-  mint: string;
-  seed: string;
-  numFrames: number;
-  occlusionLevel: number;
-  pricePerFrame: string;
-  escrowAmount: string;
-  stakeAmount: string;
-  node: string;
-  challengeWindowSecs: number;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function toRequest(address: PublicKey, a: any): RequestAccount {
-  return {
-    address: address.toBase58(),
-    requester: a.requester.toBase58(),
-    requestId: a.requestId.toString(),
-    mint: a.mint.toBase58(),
-    seed: a.seed.toString(),
-    numFrames: a.numFrames,
-    occlusionLevel: a.occlusionLevel,
-    pricePerFrame: a.pricePerFrame.toString(),
-    escrowAmount: a.escrowAmount.toString(),
-    stakeAmount: a.stakeAmount.toString(),
-    node: a.node.toBase58(),
-    challengeWindowSecs: num(a.challengeWindowSecs),
-    status: Object.keys(a.status)[0].replace(/^./, (c) => c.toUpperCase()),
-    createdAt: num(a.createdAt),
-    claimedAt: num(a.claimedAt),
-    claimDeadline: num(a.claimDeadline),
-    commitDeadline: num(a.commitDeadline),
-    challengeWindowEnd: num(a.challengeWindowEnd),
-  };
-}
 
 export async function listRequests(): Promise<RequestAccount[]> {
   const all = await accounts().request.all();
@@ -95,16 +55,7 @@ export async function getRequest(address: string): Promise<RequestAccount | null
 
 export async function getSubmission(request: string): Promise<SubmissionView | null> {
   const a = await accounts().submission.fetchNullable(seeds.submission(new PublicKey(request)));
-  if (!a) return null;
-  const seedHex = hex(a.sampleSeed);
-  return {
-    merkleRoot: hex(a.merkleRoot),
-    commitSlot: num(a.commitSlot),
-    sampleSeed: /^0+$/.test(seedHex) ? null : seedHex,
-    sampleSlot: num(a.sampleSlot),
-    sampleCount: a.sampleCount,
-    verdict: Object.keys(a.verdict)[0].replace(/^./, (c) => c.toUpperCase()),
-  };
+  return a ? toSubmission(a) : null;
 }
 
 const txCache = new Map<string, TxRecord>();
