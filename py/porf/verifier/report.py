@@ -63,6 +63,8 @@ def _atomic_write(path: Path, text: str) -> None:
 def summarize(report: dict[str, Any]) -> str:
     s = report.get("sample", {})
     lines = [
+        "TrueFrame verification report",
+        "",
         f"Request {report['request']}  (request_id {report.get('request_id')}, node {report.get('node')})",
         f"Sample: {s.get('count')} of {report.get('frame_count')} frames {s.get('indices')}  seed {str(s.get('seed'))[:16]}...  slot {s.get('slot')}",
         f"Reveal URL: {report.get('reveal_url')}",

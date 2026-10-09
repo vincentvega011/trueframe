@@ -34,7 +34,7 @@ fail() { echo "SETUP FAILED: $*" >&2; exit 1; }
 command -v anchor >/dev/null || fail "anchor not found; see docs/ENV.md"
 [ -d "$CLI/node_modules" ] || (cd "$CLI" && npm ci --no-audit --no-fund >/dev/null)
 
-echo "Proof-of-Render setup ($CLUSTER)"
+echo "TrueFrame setup ($CLUSTER)"
 echo
 echo "[1/3] building the program"
 anchor build >/dev/null 2>&1 || fail "anchor build failed; run it by hand to see why"

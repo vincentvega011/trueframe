@@ -151,7 +151,7 @@ export async function checkNetwork(): Promise<string | null> {
     if (CLUSTER === "devnet" && genesis !== DEVNET_GENESIS) return `Wrong network: this build talks to devnet, but ${RPC_HOST} is a different cluster.`;
     if (CLUSTER === "localnet" && genesis === DEVNET_GENESIS) return `Wrong network: this build expects a local validator, but ${RPC_HOST} is devnet.`;
     const info = await connection.getAccountInfo(PROGRAM_ID);
-    if (!info) return `The Proof-of-Render program is not deployed on ${RPC_HOST}.`;
+    if (!info) return `The TrueFrame program is not deployed on ${RPC_HOST}.`;
     return null;
   } catch (e) {
     return explainError(e).message;

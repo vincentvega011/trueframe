@@ -60,7 +60,7 @@ function Shell() {
       <aside className="rail">
         <div className="brand">
           <div className="brandmark" aria-hidden="true"><svg viewBox="0 0 32 24"><rect x="1" y="1" width="30" height="22" rx="2" /><path d="M8 12.5l5 5 11-11" /></svg></div>
-          <div><div className="brandname">Proof-of-Render</div><div className="dim brandsub">Verification console</div></div>
+          <div><div className="brandname">TrueFrame</div><div className="dim brandsub">Verification console</div></div>
         </div>
         <nav aria-label="Views">
           {nav.map((n) => (

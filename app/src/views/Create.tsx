@@ -71,7 +71,7 @@ export function CreateView({ go }: { go: (to: string) => void }) {
 
   return (
     <div className="view">
-      <header className="viewhead"><h1>Create request</h1><p className="dim">Escrow payment for a seeded set of warehouse scenes. A node renders them; the verifier checks a sample before anyone is paid.</p></header>
+      <header className="viewhead stacked"><h1>Create request</h1><p className="dim">Order a synthetic dataset. A node renders it, a verifier spot-checks it, and you only pay if it's real.</p></header>
       {!IS_LOCALNET && wallet?.kind === "extension" && (
         <Notice tone="wait" title="Phantom: switch on Testnet Mode">In Phantom open Settings, Developer Settings, Testnet Mode, and choose Solana Devnet. Without it Phantom treats this as mainnet and may warn about the transaction or refuse to sign it.</Notice>
       )}

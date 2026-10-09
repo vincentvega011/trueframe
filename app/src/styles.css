@@ -56,6 +56,8 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .view { display: flex; flex-direction: column; gap: 22px; }
 .viewhead { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; }
 .viewhead h1 { flex: 1 1 auto; }
+.viewhead.stacked h1 { flex-basis: 100%; }
+.viewhead.stacked p { max-width: none; }
 .viewhead p { order: 3; flex-basis: 100%; max-width: 62ch; margin: 0; }
 .picker { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; }
 .picker select { background: var(--panel); border: 1px solid var(--rule); padding: 8px 12px; font-family: var(--mono); font-size: 0.85rem; min-width: 460px; border-radius: 4px; }

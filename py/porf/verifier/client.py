@@ -279,7 +279,7 @@ class Verifier:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Proof-of-Render verifier")
+    ap = argparse.ArgumentParser(description="TrueFrame verifier")
     ap.add_argument("--keypair", required=True, help="verifier keypair file (must be the configured verifier)")
     ap.add_argument("--out", default="out/verifier")
     ap.add_argument("--poll", type=float, default=2.0)

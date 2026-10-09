@@ -55,6 +55,7 @@ class Demo:
         self.keys = self.env["keys"]
         self.tok = self.env["token_accounts"]
         self.steps, self.n = steps, 0
+        print(f"TrueFrame demo: {label} ({cluster})", flush=True)
         self.out = REPO_ROOT / "out" / "demo" / f"{label}-{time.strftime('%H%M%S')}"
         self.out.mkdir(parents=True, exist_ok=True)
         self.procs: list[subprocess.Popen] = []
@@ -292,7 +293,7 @@ def run_timeout(cluster: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Proof-of-Render demo")
+    ap = argparse.ArgumentParser(description="TrueFrame demo")
     sub = ap.add_subparsers(dest="what", required=True)
     for name in ("honest", "cheat", "timeout"):
         p = sub.add_parser(name)

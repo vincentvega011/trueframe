@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Proof-of-Render console: create request, status timeline, challenge result",
+  "description": "TrueFrame console: create request, status timeline, challenge result",
   "scripts": {
     "predev": "node scripts/sync-idl.mjs",
     "dev": "vite",
